@@ -1332,6 +1332,188 @@ html, body {
     from { opacity: 1; }
     to { opacity: 0; transform: translateX(40px); }
 }
+
+/* ── Proxy Manager Panel ── */
+.proxy-panel-wrap {
+    position: relative;
+}
+.btn-proxy {
+    padding: 6px 14px;
+    background: rgba(0,229,255,0.07);
+    border: 1px solid rgba(0,229,255,0.25);
+    color: var(--info);
+    border-radius: var(--radius);
+    font-size: 11px;
+    font-family: var(--mono);
+    font-weight: 600;
+    cursor: pointer;
+    letter-spacing: 0.5px;
+    transition: background var(--transition), border-color var(--transition);
+    white-space: nowrap;
+}
+.btn-proxy:hover {
+    background: rgba(0,229,255,0.14);
+    border-color: rgba(0,229,255,0.5);
+}
+.proxy-panel {
+    display: none;
+    position: absolute;
+    top: calc(100% + 10px);
+    right: 0;
+    width: 460px;
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    box-shadow: 0 8px 32px rgba(0,0,0,0.5);
+    z-index: 9999;
+    overflow: hidden;
+}
+.proxy-panel.open { display: block; }
+.proxy-panel-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 14px 16px 12px;
+    border-bottom: 1px solid var(--border);
+    background: rgba(0,229,255,0.04);
+}
+.proxy-panel-head h4 {
+    font-size: 12px;
+    color: var(--info);
+    font-family: var(--mono);
+    letter-spacing: 1px;
+    text-transform: uppercase;
+}
+.proxy-ip-row {
+    padding: 10px 16px;
+    background: rgba(0,0,0,0.2);
+    border-bottom: 1px solid var(--border);
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    font-size: 11px;
+    font-family: var(--mono);
+}
+.proxy-ip-label { color: var(--text-muted); }
+.proxy-ip-val { color: var(--critical); font-weight: 700; }
+.proxy-panel-actions {
+    display: flex;
+    gap: 8px;
+    padding: 12px 16px;
+    border-bottom: 1px solid var(--border);
+    flex-wrap: wrap;
+}
+.btn-proxy-action {
+    padding: 6px 12px;
+    border-radius: 4px;
+    font-size: 11px;
+    font-family: var(--mono);
+    font-weight: 600;
+    cursor: pointer;
+    border: 1px solid transparent;
+    transition: all var(--transition);
+}
+.btn-proxy-action.fetch {
+    background: rgba(0,230,118,0.10);
+    border-color: rgba(0,230,118,0.30);
+    color: var(--success);
+}
+.btn-proxy-action.fetch:hover {
+    background: rgba(0,230,118,0.20);
+}
+.btn-proxy-action.test-ip {
+    background: rgba(0,229,255,0.08);
+    border-color: rgba(0,229,255,0.25);
+    color: var(--info);
+}
+.btn-proxy-action.test-ip:hover {
+    background: rgba(0,229,255,0.16);
+}
+.btn-proxy-action.clear {
+    background: rgba(233,69,96,0.08);
+    border-color: rgba(233,69,96,0.25);
+    color: var(--critical);
+}
+.btn-proxy-action.clear:hover {
+    background: rgba(233,69,96,0.16);
+}
+.proxy-add-row {
+    display: flex;
+    gap: 8px;
+    padding: 10px 16px;
+    border-bottom: 1px solid var(--border);
+}
+.proxy-add-input {
+    flex: 1;
+    padding: 6px 10px;
+    background: var(--bg-input);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    color: var(--text);
+    font-size: 11px;
+    font-family: var(--mono);
+    outline: none;
+}
+.proxy-add-input:focus { border-color: var(--info); }
+.btn-proxy-add {
+    padding: 6px 12px;
+    background: rgba(0,229,255,0.10);
+    border: 1px solid rgba(0,229,255,0.3);
+    color: var(--info);
+    border-radius: 4px;
+    font-size: 11px;
+    font-family: var(--mono);
+    cursor: pointer;
+}
+.proxy-list-wrap {
+    max-height: 200px;
+    overflow-y: auto;
+    padding: 6px 0;
+}
+.proxy-item {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 5px 16px;
+    font-size: 11px;
+    font-family: var(--mono);
+    color: var(--text-dim);
+    gap: 8px;
+    transition: background var(--transition);
+}
+.proxy-item:hover { background: rgba(255,255,255,0.03); }
+.proxy-item-url { flex: 1; word-break: break-all; }
+.proxy-item-ip {
+    color: var(--success);
+    font-weight: 600;
+    min-width: 90px;
+    text-align: right;
+}
+.proxy-item-bad { color: var(--critical); }
+.btn-proxy-del {
+    background: none;
+    border: none;
+    color: var(--text-muted);
+    cursor: pointer;
+    font-size: 13px;
+    padding: 0 2px;
+    line-height: 1;
+}
+.btn-proxy-del:hover { color: var(--critical); }
+.proxy-empty {
+    padding: 20px;
+    text-align: center;
+    color: var(--text-muted);
+    font-size: 11px;
+}
+.proxy-status-bar {
+    padding: 8px 16px;
+    font-size: 11px;
+    font-family: var(--mono);
+    color: var(--text-muted);
+    border-top: 1px solid var(--border);
+    min-height: 32px;
+}
 </style>
 </head>
 <body>
@@ -1354,6 +1536,38 @@ html, body {
         <div class="header-right">
             <button class="btn-back-dash" id="backToDash" style="display:none" onclick="showDashboard()">&#9664; Dashboard</button>
             <div class="c99-badge" id="c99Badge" title="C99.nl subdomain source mode" style="display:none"></div>
+
+            <!-- Proxy Manager -->
+            <div class="proxy-panel-wrap" id="proxyPanelWrap">
+                <button class="btn-proxy" id="proxyBtn" onclick="toggleProxyPanel()">&#9654; Proxies <span id="proxyCount">0</span></button>
+                <div class="proxy-panel" id="proxyPanel">
+                    <div class="proxy-panel-head">
+                        <h4>⚡ C99 Proxy Manager</h4>
+                        <span style="font-size:10px;color:var(--text-muted)">Rotate IPs to bypass C99 abuse block</span>
+                    </div>
+                    <div class="proxy-ip-row">
+                        <span class="proxy-ip-label">Your IP:</span>
+                        <span class="proxy-ip-val" id="myIpDisplay">...</span>
+                        <span style="margin-left:auto;color:var(--text-muted);font-size:10px">This IP is visible to C99 when no proxy is used</span>
+                    </div>
+                    <div class="proxy-panel-actions">
+                        <button class="btn-proxy-action fetch" id="btnFetchProxies" onclick="fetchFreshProxies()">&#8635; Auto-Fetch Free Proxies</button>
+                        <button class="btn-proxy-action test-ip" id="btnTestProxies" onclick="testAllProxies()">&#9654; Test All &amp; Verify IPs</button>
+                        <button class="btn-proxy-action clear" onclick="clearProxies()">&#10005; Clear Pool</button>
+                    </div>
+                    <div class="proxy-add-row">
+                        <input type="text" class="proxy-add-input" id="proxyAddInput"
+                               placeholder="http://ip:port  or  socks5://user:pass@ip:port"
+                               onkeydown="if(event.key==='Enter') addProxyManual()">
+                        <button class="btn-proxy-add" onclick="addProxyManual()">+ Add</button>
+                    </div>
+                    <div class="proxy-list-wrap" id="proxyList">
+                        <div class="proxy-empty">No proxies in pool. Click "Auto-Fetch" to load free proxies.</div>
+                    </div>
+                    <div class="proxy-status-bar" id="proxyStatusBar">Ready</div>
+                </div>
+            </div>
+
             <div class="status-indicator">
                 <div class="status-dot" id="statusDot"></div>
                 <span id="statusText">IDLE</span>
@@ -2841,6 +3055,205 @@ html, body {
             addFeedEntry('vulnerability', 'Error loading scan: ' + e.message);
         }
     };
+
+    // ── Proxy Manager ────────────────────────────────────────────────────
+    let proxyPanelOpen = false;
+
+    window.toggleProxyPanel = function() {
+        proxyPanelOpen = !proxyPanelOpen;
+        document.getElementById('proxyPanel').classList.toggle('open', proxyPanelOpen);
+        if (proxyPanelOpen) loadProxyList();
+    };
+
+    // Close panel when clicking outside
+    document.addEventListener('click', function(e) {
+        const wrap = document.getElementById('proxyPanelWrap');
+        if (proxyPanelOpen && wrap && !wrap.contains(e.target)) {
+            proxyPanelOpen = false;
+            document.getElementById('proxyPanel').classList.remove('open');
+        }
+    });
+
+    async function loadProxyList() {
+        try {
+            const resp = await fetch('/api/proxies');
+            if (!resp.ok) return;
+            const data = await resp.json();
+            renderProxyList(data);
+        } catch(e) { /* ignore */ }
+    }
+
+    function renderProxyList(data) {
+        const myIp = data.my_ip || '?';
+        document.getElementById('myIpDisplay').textContent = myIp;
+        document.getElementById('proxyCount').textContent = data.count || 0;
+
+        const listEl = document.getElementById('proxyList');
+        const proxies = data.proxies || [];
+        if (proxies.length === 0) {
+            listEl.innerHTML = '<div class="proxy-empty">No proxies in pool. Click "Auto-Fetch" to load free proxies.</div>';
+            return;
+        }
+        listEl.innerHTML = proxies.map((p, i) =>
+            '<div class="proxy-item">' +
+            '<span class="proxy-item-url">' + escapeHtml(p) + '</span>' +
+            '<button class="btn-proxy-del" onclick="deleteProxy(' + i + ')" title="Remove proxy">&#10005;</button>' +
+            '</div>'
+        ).join('');
+    }
+
+    window.fetchFreshProxies = async function() {
+        const btn = document.getElementById('btnFetchProxies');
+        const bar = document.getElementById('proxyStatusBar');
+        btn.disabled = true;
+        btn.textContent = '⏳ Fetching...';
+        bar.textContent = 'Fetching fresh proxy list from 5 GitHub sources...';
+        bar.style.color = 'var(--info)';
+        try {
+            const resp = await fetch('/api/proxies/refresh', { method: 'POST' });
+            const data = await resp.json();
+            bar.textContent = data.message || 'Fetching in background — check back in ~20s';
+            bar.style.color = 'var(--success)';
+            // Poll every 3s for up to 45s to show results coming in
+            let polls = 0;
+            const poll = setInterval(async () => {
+                polls++;
+                const r = await fetch('/api/proxies');
+                const d = await r.json();
+                renderProxyList(d);
+                bar.textContent = 'Fetching... ' + (d.count || 0) + ' proxies so far';
+                if (d.count >= 5 || polls >= 15) {
+                    clearInterval(poll);
+                    bar.textContent = '✓ Done — ' + (d.count || 0) + ' proxies in pool';
+                    bar.style.color = 'var(--success)';
+                    btn.disabled = false;
+                    btn.textContent = '↻ Auto-Fetch Free Proxies';
+                    updateC99Badge(d);
+                }
+            }, 3000);
+        } catch(e) {
+            bar.textContent = 'Error: ' + e.message;
+            bar.style.color = 'var(--critical)';
+            btn.disabled = false;
+            btn.textContent = '↻ Auto-Fetch Free Proxies';
+        }
+    };
+
+    window.testAllProxies = async function() {
+        const btn = document.getElementById('btnTestProxies');
+        const bar = document.getElementById('proxyStatusBar');
+        btn.disabled = true;
+        btn.textContent = '⏳ Testing...';
+        bar.textContent = 'Testing all proxies — verifying IP changes...';
+        bar.style.color = 'var(--info)';
+        try {
+            const resp = await fetch('/api/proxies/test', { method: 'POST' });
+            const data = await resp.json();
+            const listEl = document.getElementById('proxyList');
+            if (!data.working || data.working.length === 0) {
+                listEl.innerHTML = '<div class="proxy-empty">No working proxies — click Auto-Fetch to get fresh ones.</div>';
+                bar.textContent = '⚠ All proxies dead — pool cleared. Auto-Fetch to reload.';
+                bar.style.color = 'var(--warning)';
+            } else {
+                listEl.innerHTML = data.working.map((item, i) =>
+                    '<div class="proxy-item">' +
+                    '<span class="proxy-item-url">' + escapeHtml(item.proxy) + '</span>' +
+                    '<span class="proxy-item-ip">→ ' + escapeHtml(item.ip) + '</span>' +
+                    '<button class="btn-proxy-del" onclick="deleteProxy(\'' + escapeHtml(item.proxy) + '\')" title="Remove">&#10005;</button>' +
+                    '</div>'
+                ).join('');
+                document.getElementById('proxyCount').textContent = data.working.length;
+                bar.textContent = '✓ ' + data.working.length + ' working proxies verified (your IP: ' + (data.my_ip || '?') + ')';
+                bar.style.color = 'var(--success)';
+            }
+        } catch(e) {
+            bar.textContent = 'Test error: ' + e.message;
+            bar.style.color = 'var(--critical)';
+        } finally {
+            btn.disabled = false;
+            btn.textContent = '▶ Test All & Verify IPs';
+        }
+    };
+
+    window.clearProxies = async function() {
+        if (!confirm('Clear all proxies from the pool?')) return;
+        // Call delete on each proxy — simplest approach: just refresh list after POST to clear
+        try {
+            // Use a dedicated clear endpoint via proxy refresh hack — just POST empty list
+            const resp = await fetch('/api/proxies/clear', { method: 'POST' });
+            if (resp.ok) {
+                document.getElementById('proxyList').innerHTML = '<div class="proxy-empty">Pool cleared. Auto-Fetch to reload.</div>';
+                document.getElementById('proxyCount').textContent = '0';
+                document.getElementById('proxyStatusBar').textContent = 'Pool cleared';
+            }
+        } catch(e) {
+            // fallback: just show as cleared in UI
+            document.getElementById('proxyList').innerHTML = '<div class="proxy-empty">Pool cleared. Auto-Fetch to reload.</div>';
+            document.getElementById('proxyCount').textContent = '0';
+        }
+    };
+
+    window.addProxyManual = async function() {
+        const input = document.getElementById('proxyAddInput');
+        const val = input.value.trim();
+        if (!val) return;
+        const proxy = val.startsWith('http') ? val : 'http://' + val;
+        try {
+            const resp = await fetch('/api/proxies/add', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ proxy }),
+            });
+            if (resp.ok) {
+                input.value = '';
+                loadProxyList();
+                document.getElementById('proxyStatusBar').textContent = '+ Added: ' + proxy;
+                document.getElementById('proxyStatusBar').style.color = 'var(--success)';
+            }
+        } catch(e) {
+            document.getElementById('proxyStatusBar').textContent = 'Error: ' + e.message;
+        }
+    };
+
+    window.deleteProxy = async function(proxyOrIdx) {
+        try {
+            const resp = await fetch('/api/proxies/remove', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ proxy: proxyOrIdx }),
+            });
+            if (resp.ok) loadProxyList();
+        } catch(e) { /* ignore */ }
+    };
+
+    function updateC99Badge(cfg) {
+        const badge = document.getElementById('c99Badge');
+        if (!badge) return;
+        const mode = cfg.c99_mode || (cfg.count > 0 ? 'proxy-scrape' : 'direct-scrape');
+        badge.style.display = '';
+        if (mode === 'api') {
+            badge.textContent = 'C99 API ✓';
+            badge.className = 'c99-badge mode-api';
+        } else if (mode === 'proxy-scrape' || (cfg.count && cfg.count > 0)) {
+            badge.textContent = 'C99 ' + (cfg.c99_proxy_count || cfg.count || 0) + ' proxies';
+            badge.className = 'c99-badge mode-proxy';
+        } else {
+            badge.textContent = 'C99 DIRECT';
+            badge.className = 'c99-badge mode-direct';
+        }
+    }
+
+    // Load proxy count on start
+    (async function initProxyCount() {
+        try {
+            const r = await fetch('/api/proxies');
+            if (r.ok) {
+                const d = await r.json();
+                document.getElementById('proxyCount').textContent = d.count || 0;
+                document.getElementById('myIpDisplay').textContent = d.my_ip || '...';
+            }
+        } catch(e) { /* ignore */ }
+    })();
 
     // ── C99 config badge ──
     (async function loadC99Config() {

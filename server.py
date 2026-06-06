@@ -73,21 +73,151 @@ C99_API_KEY: str = os.environ.get("C99_API_KEY", "").strip()
 
 # Optional: comma-separated list of proxies for C99 scraping fallback
 # Format: http://ip:port,socks5://user:pass@ip:port,http://ip:port
-# If set, each C99 request uses the next proxy in rotation
+# If not set, the scanner auto-fetches fresh free proxies on first abuse block
 _raw_proxy_list = os.environ.get("C99_PROXIES", os.environ.get("PROXY_LIST", "")).strip()
 C99_PROXY_LIST: list[str] = [p.strip() for p in _raw_proxy_list.split(",") if p.strip()] if _raw_proxy_list else []
 _c99_proxy_index = 0
 _c99_proxy_lock = threading.Lock()
 
+# Sources that supply fresh free proxy lists (plain ip:port per line)
+_PROXY_SOURCES = [
+    "https://raw.githubusercontent.com/TheSpeedX/PROXY-List/master/http.txt",
+    "https://raw.githubusercontent.com/ShiftyTR/Proxy-List/master/http.txt",
+    "https://raw.githubusercontent.com/monosans/proxy-list/main/proxies/http.txt",
+    "https://raw.githubusercontent.com/clarketm/proxy-list/master/proxy-list-raw.txt",
+    "https://raw.githubusercontent.com/jetkai/proxy-list/main/online-proxies/txt/proxies-http.txt",
+]
+_proxy_fetch_lock = threading.Lock()
+_proxy_last_fetched: float = 0.0   # epoch seconds of last auto-fetch
+MY_PUBLIC_IP: str = ""             # populated at startup for dedup
+
+def _get_my_ip() -> str:
+    """Return the server's own public IP (cached)."""
+    global MY_PUBLIC_IP
+    if MY_PUBLIC_IP:
+        return MY_PUBLIC_IP
+    try:
+        r = requests.get("https://api.ipify.org?format=json", timeout=6)
+        MY_PUBLIC_IP = r.json().get("ip", "")
+        log.info("Public IP: %s", MY_PUBLIC_IP)
+    except Exception:
+        pass
+    return MY_PUBLIC_IP
+
+def _test_proxy(proxy_str: str, my_ip: str) -> bool:
+    """Return True if proxy works and exposes a different IP."""
+    try:
+        r = requests.get(
+            "https://api.ipify.org?format=json",
+            proxies={"http": proxy_str, "https": proxy_str},
+            timeout=6,
+        )
+        if r.status_code == 200:
+            returned_ip = r.json().get("ip", "")
+            return bool(returned_ip) and returned_ip != my_ip
+    except Exception:
+        pass
+    return False
+
+def fetch_fresh_proxies(min_working: int = 10, status_cb=None) -> list[str]:
+    """
+    Download free proxy lists, test them in parallel, return working ones.
+    status_cb(msg): optional callback for progress messages (shown in WS feed).
+    """
+    global _proxy_last_fetched
+    my_ip = _get_my_ip()
+    raw: list[str] = []
+
+    if status_cb:
+        status_cb(f"Fetching fresh free proxies from {len(_PROXY_SOURCES)} sources...")
+    log.info("Fetching fresh proxy lists")
+
+    for src in _PROXY_SOURCES:
+        try:
+            resp = requests.get(src, timeout=12, headers={"User-Agent": "curl/7.88"})
+            if resp.status_code == 200:
+                for line in resp.text.strip().splitlines():
+                    line = line.strip()
+                    if line and ":" in line and not line.startswith("#"):
+                        # strip any scheme already present
+                        line = line.replace("http://", "").replace("https://", "").split()[0]
+                        raw.append("http://" + line)
+        except Exception as e:
+            log.debug("Proxy source error %s: %s", src, e)
+
+    raw = list(dict.fromkeys(raw))  # deduplicate preserving order
+    log.info("Collected %d raw proxy candidates", len(raw))
+    if status_cb:
+        status_cb(f"Testing {len(raw)} proxy candidates (parallel)...")
+
+    working: list[str] = []
+    wlock = threading.Lock()
+
+    def _test(p: str) -> None:
+        if _test_proxy(p, my_ip):
+            with wlock:
+                working.append(p)
+
+    with ThreadPoolExecutor(max_workers=40) as pool:
+        futs = [pool.submit(_test, p) for p in raw[:300]]  # cap at 300 candidates
+        for _ in as_completed(futs):
+            with wlock:
+                if len(working) >= min_working * 2:
+                    break  # we have enough — no need to wait for all
+
+    _proxy_last_fetched = time.time()
+    log.info("fetch_fresh_proxies: %d working out of %d tested", len(working), len(raw))
+    if status_cb:
+        status_cb(f"Proxy refresh done: {len(working)} working proxies found")
+    return working[:min_working * 2]  # return up to 2× the minimum
+
+def _ensure_proxies(status_cb=None) -> None:
+    """
+    If C99_PROXY_LIST is empty (or stale >1h), auto-fetch fresh proxies and
+    populate the list so subsequent C99 requests rotate through them.
+    """
+    global C99_PROXY_LIST, _proxy_last_fetched
+    with _c99_proxy_lock:
+        age = time.time() - _proxy_last_fetched
+        if C99_PROXY_LIST and age < 3600:
+            return  # list is fresh enough
+    fresh = fetch_fresh_proxies(min_working=8, status_cb=status_cb)
+    with _c99_proxy_lock:
+        if fresh:
+            C99_PROXY_LIST = fresh
+            log.info("Auto-populated %d fresh proxies", len(fresh))
+
+def _add_proxy(proxy_str: str) -> None:
+    """Append a new proxy to the rotation pool at runtime."""
+    with _c99_proxy_lock:
+        if proxy_str not in C99_PROXY_LIST:
+            C99_PROXY_LIST.append(proxy_str)
+
+def _remove_proxy(proxy_str: str) -> None:
+    """Remove a dead/blocked proxy from the rotation pool."""
+    with _c99_proxy_lock:
+        try:
+            C99_PROXY_LIST.remove(proxy_str)
+        except ValueError:
+            pass
+
 def _next_c99_proxy() -> dict | None:
     """Return next proxy dict from rotation, or None if no proxies configured."""
     global _c99_proxy_index
-    if not C99_PROXY_LIST:
-        return None
     with _c99_proxy_lock:
+        if not C99_PROXY_LIST:
+            return None
         proxy = C99_PROXY_LIST[_c99_proxy_index % len(C99_PROXY_LIST)]
         _c99_proxy_index += 1
     return {"http": proxy, "https": proxy}
+
+def _current_proxy_str() -> str | None:
+    """Return the proxy string that was last handed out (for removal on block)."""
+    with _c99_proxy_lock:
+        if not C99_PROXY_LIST:
+            return None
+        idx = (_c99_proxy_index - 1) % len(C99_PROXY_LIST)
+        return C99_PROXY_LIST[idx]
 
 # User-Agent pool for C99 scraping fallback (rotate to avoid fingerprinting)
 _C99_UA_POOL = [
@@ -97,14 +227,21 @@ _C99_UA_POOL = [
     "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
     "Mozilla/5.0 (Macintosh; Intel Mac OS X 14_4_1) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.4.1 Safari/605.1.15",
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36 Edg/121.0.0.0",
+    "Mozilla/5.0 (iPhone; CPU iPhone OS 17_4 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.4 Mobile/15E148 Safari/604.1",
+    "Mozilla/5.0 (Android 14; Mobile; rv:124.0) Gecko/124.0 Firefox/124.0",
 ]
 _c99_ua_index = 0
+_c99_ua_lock = threading.Lock()
 
 def _next_c99_ua() -> str:
     global _c99_ua_index
-    ua = _C99_UA_POOL[_c99_ua_index % len(_C99_UA_POOL)]
-    _c99_ua_index += 1
+    with _c99_ua_lock:
+        ua = _C99_UA_POOL[_c99_ua_index % len(_C99_UA_POOL)]
+        _c99_ua_index += 1
     return ua
+
+# Fetch and cache our own IP at startup (background — don't block startup)
+threading.Thread(target=_get_my_ip, daemon=True).start()
 
 # ============================================================================
 # AEM ENDPOINTS (60 targets)
@@ -804,13 +941,18 @@ def phase1_subdomains(scan: ScanState) -> None:
                 log.warning("C99.nl API error: %s", e)
 
         # ── Mode B: HTML scraper with proxy + UA rotation ──────────────
+        # Auto-fetches fresh free proxies if none are configured and an
+        # abuse block is detected — no manual setup needed.
         if not c99_success and not scan.cancelled:
             try:
-                proxy_info = f" via proxy ({len(C99_PROXY_LIST)} in pool)" if C99_PROXY_LIST else " (no proxy — set C99_PROXIES to avoid blocks)"
+                proxy_info = (f" via {len(C99_PROXY_LIST)} proxies" if C99_PROXY_LIST
+                              else " (auto-proxy enabled — will fetch proxies if blocked)")
                 _send_ws(scan, {"type": "log", "level": "info",
                                 "message": f"C99.nl: scraping last 30 days{proxy_info}..."})
                 log.info("SOURCE 0: C99.nl scrape mode for %s (proxies: %d)", d, len(C99_PROXY_LIST))
                 c99_found = False
+                abuse_blocks = 0          # count consecutive blocks before auto-fetch
+                _auto_fetched = False     # only auto-fetch once per scan
 
                 pattern = _re_c99.compile(
                     r"'([a-zA-Z0-9][a-zA-Z0-9._-]*\." + _re_c99.escape(d) + r")'"
@@ -824,7 +966,8 @@ def phase1_subdomains(scan: ScanState) -> None:
 
                     # Pick next proxy and UA from rotation pools
                     proxy = _next_c99_proxy()
-                    ua    = _next_c99_ua()
+                    used_proxy_str = list(proxy.values())[0] if proxy else None
+                    ua = _next_c99_ua()
 
                     try:
                         c99_resp = requests.get(
@@ -835,32 +978,74 @@ def phase1_subdomains(scan: ScanState) -> None:
                             proxies=proxy,
                         )
                     except requests.RequestException as req_e:
-                        proxy_str = list(proxy.values())[0] if proxy else "direct"
+                        p_label = used_proxy_str or "direct"
                         _send_ws(scan, {"type": "log", "level": "warn",
-                                        "message": f"C99.nl: connection error via {proxy_str}: {req_e}"})
+                                        "message": f"C99.nl: connection error via {p_label}: {req_e}"})
+                        if used_proxy_str:
+                            _remove_proxy(used_proxy_str)  # evict dead proxy
                         continue
 
-                    # Abuse block detection
-                    if c99_resp.status_code == 403 or (
-                        c99_resp.status_code == 200 and "abuse" in c99_resp.text[:1000].lower()
-                    ):
+                    # ── Abuse block detection ──────────────────────────────
+                    body_preview = ""
+                    is_abuse = False
+                    if c99_resp.status_code == 403:
+                        is_abuse = True
+                    elif c99_resp.status_code == 200:
+                        body_preview = c99_resp.text[:2000]
+                        is_abuse = "abuse" in body_preview.lower() or "abuse@c99.nl" in body_preview.lower()
+
+                    if is_abuse:
                         c99_resp.close()
-                        proxy_str = list(proxy.values())[0] if proxy else "direct IP"
+                        abuse_blocks += 1
+                        p_label = used_proxy_str or "direct IP"
                         _send_ws(scan, {"type": "log", "level": "warn",
-                                        "message": f"C99.nl: abuse block detected on {proxy_str} — rotating proxy..."})
-                        log.warning("C99.nl abuse block on %s", proxy_str)
-                        # Try next proxy immediately (loop will pick it up)
-                        continue
+                                        "message": f"C99.nl: ⚠ abuse block on {p_label} (block #{abuse_blocks}) — evicting & rotating..."})
+                        log.warning("C99.nl abuse block #%d on %s", abuse_blocks, p_label)
+
+                        # Evict the blocked proxy (it's now tainted)
+                        if used_proxy_str:
+                            _remove_proxy(used_proxy_str)
+
+                        # If we've hit 2+ blocks and haven't auto-fetched yet → get fresh proxies
+                        if abuse_blocks >= 2 and not _auto_fetched:
+                            _auto_fetched = True
+                            _send_ws(scan, {"type": "log", "level": "info",
+                                            "message": "C99.nl: auto-fetching fresh free proxies (this takes ~15s)..."})
+
+                            def _status_cb(msg: str) -> None:
+                                _send_ws(scan, {"type": "log", "level": "info",
+                                                "message": f"ProxyFetch: {msg}"})
+
+                            fresh = fetch_fresh_proxies(min_working=10, status_cb=_status_cb)
+                            if fresh:
+                                with _c99_proxy_lock:
+                                    # Merge fresh into existing list (existing may still have good ones)
+                                    for p in fresh:
+                                        if p not in C99_PROXY_LIST:
+                                            C99_PROXY_LIST.append(p)
+                                _send_ws(scan, {"type": "log", "level": "info",
+                                                "message": f"C99.nl: loaded {len(fresh)} fresh proxies — resuming..."})
+                            else:
+                                _send_ws(scan, {"type": "log", "level": "warn",
+                                                "message": "C99.nl: no working free proxies found — skipping C99 source"})
+                                break  # give up on C99 entirely if no proxies work
+
+                        continue  # try next date with fresh proxy
 
                     if c99_resp.status_code != 200:
                         c99_resp.close()
                         continue
 
+                    # ── Stream and extract subdomains ──────────────────────
                     _send_ws(scan, {"type": "log", "level": "info",
-                                    "message": f"C99.nl: streaming {check_date}..."})
+                                    "message": f"C99.nl: streaming {check_date}" +
+                                               (f" via {used_proxy_str}" if used_proxy_str else "") + "..."})
 
                     date_before = count
-                    leftover = ""
+                    leftover = body_preview  # body_preview may already have content
+                    for match in pattern.findall(leftover):
+                        _add_sub(match, "c99")
+                    leftover = leftover[-300:] if len(leftover) > 300 else leftover
                     chunk_count = 0
                     for chunk in c99_resp.iter_content(chunk_size=131072, decode_unicode=True):
                         if scan.cancelled:
@@ -2661,6 +2846,109 @@ async def get_config() -> JSONResponse:
         "c99_api_key_set": bool(C99_API_KEY),
         "c99_proxy_count": len(C99_PROXY_LIST),
         "c99_mode": "api" if C99_API_KEY else ("proxy-scrape" if C99_PROXY_LIST else "direct-scrape"),
+        "my_ip": MY_PUBLIC_IP,
+    })
+
+
+@app.get("/api/proxies")
+async def list_proxies() -> JSONResponse:
+    """List current proxy pool."""
+    with _c99_proxy_lock:
+        pool = list(C99_PROXY_LIST)
+    return JSONResponse({
+        "count": len(pool),
+        "proxies": pool,
+        "my_ip": MY_PUBLIC_IP,
+        "c99_mode": "api" if C99_API_KEY else ("proxy-scrape" if pool else "direct-scrape"),
+    })
+
+
+@app.post("/api/proxies/refresh")
+async def refresh_proxies_endpoint() -> JSONResponse:
+    """
+    Fetch fresh free proxies in the background and update the pool.
+    Returns immediately — poll /api/proxies to see results.
+    """
+    def _bg_refresh():
+        fresh = fetch_fresh_proxies(min_working=10)
+        with _c99_proxy_lock:
+            for p in fresh:
+                if p not in C99_PROXY_LIST:
+                    C99_PROXY_LIST.append(p)
+        log.info("Background proxy refresh done: +%d proxies (total: %d)", len(fresh), len(C99_PROXY_LIST))
+
+    threading.Thread(target=_bg_refresh, daemon=True).start()
+    return JSONResponse({"status": "refreshing", "message": "Fetching fresh proxies in background — check /api/proxies in ~20s"})
+
+
+class ProxyBody(BaseModel):
+    proxy: str
+
+@app.post("/api/proxies/add")
+async def add_proxy_endpoint(body: ProxyBody) -> JSONResponse:
+    """Add a proxy to the pool."""
+    proxy = body.proxy.strip()
+    if not proxy:
+        raise HTTPException(status_code=400, detail="proxy required")
+    if not proxy.startswith(("http://", "https://", "socks5://", "socks4://")):
+        proxy = "http://" + proxy
+    _add_proxy(proxy)
+    return JSONResponse({"added": proxy, "count": len(C99_PROXY_LIST)})
+
+@app.post("/api/proxies/remove")
+async def remove_proxy_endpoint(body: ProxyBody) -> JSONResponse:
+    """Remove a proxy from the pool by URL or index."""
+    p = body.proxy.strip()
+    if p.isdigit():
+        with _c99_proxy_lock:
+            idx = int(p)
+            if 0 <= idx < len(C99_PROXY_LIST):
+                removed = C99_PROXY_LIST.pop(idx)
+                return JSONResponse({"removed": removed, "count": len(C99_PROXY_LIST)})
+    else:
+        _remove_proxy(p)
+    return JSONResponse({"removed": p, "count": len(C99_PROXY_LIST)})
+
+@app.post("/api/proxies/clear")
+async def clear_proxies_endpoint() -> JSONResponse:
+    """Clear the entire proxy pool."""
+    with _c99_proxy_lock:
+        count = len(C99_PROXY_LIST)
+        C99_PROXY_LIST.clear()
+    return JSONResponse({"cleared": count})
+
+@app.post("/api/proxies/test")
+async def test_proxies_endpoint() -> JSONResponse:
+    """
+    Test all proxies in the current pool and evict dead ones.
+    Returns list of working proxies with the IP they expose.
+    """
+    my_ip = _get_my_ip()
+
+    def _test_all():
+        results = []
+        with _c99_proxy_lock:
+            pool = list(C99_PROXY_LIST)
+        for p in pool:
+            works = _test_proxy(p, my_ip)
+            if not works:
+                _remove_proxy(p)
+            else:
+                try:
+                    r = requests.get("https://api.ipify.org?format=json",
+                                     proxies={"http": p, "https": p}, timeout=6)
+                    exposed_ip = r.json().get("ip", "?")
+                except Exception:
+                    exposed_ip = "?"
+                results.append({"proxy": p, "working": True, "ip": exposed_ip})
+        return results
+
+    loop = asyncio.get_event_loop()
+    results = await loop.run_in_executor(None, _test_all)
+    return JSONResponse({
+        "my_ip": my_ip,
+        "tested": len(results),
+        "working": results,
     })
 
 
