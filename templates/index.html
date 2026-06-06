@@ -1,0 +1,2706 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>AEM RECON - Dispatcher Bypass Scanner</title>
+<style>
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+:root {
+    --bg-primary: #0a0a0f;
+    --bg-card: #1a1a2e;
+    --bg-card-hover: #1f1f35;
+    --bg-input: #12121e;
+    --accent: #0f3460;
+    --accent-light: #1a4a80;
+    --critical: #e94560;
+    --critical-dark: #b8344d;
+    --success: #00e676;
+    --success-dim: #00c853;
+    --warning: #ffab00;
+    --info: #00e5ff;
+    --text: #e0e0e0;
+    --text-dim: #8888a0;
+    --text-muted: #555570;
+    --border: #2a2a40;
+    --border-active: #0f3460;
+    --mono: 'JetBrains Mono', 'Fira Code', 'Cascadia Code', 'Source Code Pro', monospace;
+    --sans: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+    --radius: 6px;
+    --transition: 200ms ease;
+}
+
+html, body {
+    height: 100%;
+    overflow: hidden;
+    background: var(--bg-primary);
+    color: var(--text);
+    font-family: var(--sans);
+    font-size: 14px;
+    line-height: 1.5;
+    -webkit-font-smoothing: antialiased;
+}
+
+/* ── Scrollbar ── */
+::-webkit-scrollbar { width: 6px; height: 6px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+::-webkit-scrollbar-thumb:hover { background: var(--text-muted); }
+
+/* ── Layout Grid ── */
+#app {
+    display: grid;
+    grid-template-rows: 60px 80px auto 40px;
+    height: 100vh;
+    width: 100%;
+}
+#app.dashboard-mode { grid-template-rows: 60px auto 40px; }
+#app.dashboard-mode .input-section { display: none; }
+#app.dashboard-mode .main-area { display: none; }
+#app.dashboard-mode .footer { display: none; }
+#app.dashboard-mode #dashboardView { display: flex; }
+#app.scanner-mode #dashboardView { display: none; }
+
+/* ── Dashboard View ── */
+#dashboardView {
+    display: none;
+    flex-direction: column;
+    overflow: hidden;
+    background: var(--bg-primary);
+}
+.dash-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 20px 28px 16px;
+    flex-shrink: 0;
+}
+.dash-header-left h2 {
+    font-size: 18px;
+    font-weight: 700;
+    color: #fff;
+    letter-spacing: 0.5px;
+}
+.dash-header-left p {
+    font-size: 12px;
+    color: var(--text-muted);
+    margin-top: 2px;
+}
+.dash-header-right {
+    display: flex;
+    gap: 10px;
+    align-items: center;
+}
+.btn-new-scan {
+    padding: 9px 22px;
+    background: var(--critical);
+    color: #fff;
+    border: none;
+    border-radius: var(--radius);
+    font-family: var(--sans);
+    font-size: 12px;
+    font-weight: 700;
+    letter-spacing: 1px;
+    text-transform: uppercase;
+    cursor: pointer;
+    transition: all var(--transition);
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+.btn-new-scan:hover { background: #ff5a75; transform: translateY(-1px); box-shadow: 0 4px 16px rgba(233,69,96,0.3); }
+.btn-refresh-dash {
+    padding: 8px 14px;
+    background: transparent;
+    border: 1px solid var(--border);
+    color: var(--text-dim);
+    border-radius: var(--radius);
+    font-family: var(--sans);
+    font-size: 11px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    cursor: pointer;
+    transition: all var(--transition);
+}
+.btn-refresh-dash:hover { border-color: var(--text-dim); color: var(--text); }
+
+/* Dashboard stats row */
+.dash-stats {
+    display: grid;
+    grid-template-columns: repeat(5, 1fr);
+    gap: 14px;
+    padding: 0 28px 16px;
+    flex-shrink: 0;
+}
+.dash-stat-card {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 16px 18px;
+    position: relative;
+    overflow: hidden;
+}
+.dash-stat-card::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 3px;
+}
+.dash-stat-card.stat-total::before { background: var(--info); }
+.dash-stat-card.stat-running::before { background: var(--warning); }
+.dash-stat-card.stat-complete::before { background: var(--success); }
+.dash-stat-card.stat-aem::before { background: #69f0ae; }
+.dash-stat-card.stat-vuln::before { background: var(--critical); }
+.dash-stat-value {
+    font-family: var(--mono);
+    font-size: 28px;
+    font-weight: 700;
+    color: #fff;
+    line-height: 1;
+}
+.dash-stat-label {
+    font-size: 10px;
+    color: var(--text-dim);
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    margin-top: 6px;
+}
+
+/* Scan table */
+.dash-table-wrap {
+    flex: 1;
+    overflow: auto;
+    padding: 0 28px 20px;
+}
+.dash-table {
+    width: 100%;
+    border-collapse: separate;
+    border-spacing: 0;
+    font-size: 13px;
+}
+.dash-table thead th {
+    position: sticky;
+    top: 0;
+    background: var(--bg-card);
+    padding: 12px 16px;
+    text-align: left;
+    font-size: 10px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 1.2px;
+    color: var(--text-dim);
+    border-bottom: 2px solid var(--border);
+    white-space: nowrap;
+    z-index: 2;
+}
+.dash-table thead th:first-child { border-radius: 8px 0 0 0; }
+.dash-table thead th:last-child { border-radius: 0 8px 0 0; }
+.dash-table tbody tr {
+    cursor: pointer;
+    transition: background var(--transition);
+}
+.dash-table tbody tr:hover { background: var(--bg-card-hover); }
+.dash-table tbody td {
+    padding: 14px 16px;
+    border-bottom: 1px solid rgba(42,42,64,0.5);
+    vertical-align: middle;
+}
+.dash-table tbody tr:last-child td { border-bottom: none; }
+
+/* Status badges */
+.status-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    padding: 3px 10px;
+    border-radius: 12px;
+    font-size: 10px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    white-space: nowrap;
+}
+.status-badge.running {
+    background: rgba(255,171,0,0.12);
+    color: var(--warning);
+}
+.status-badge.running::before {
+    content: '';
+    width: 6px; height: 6px;
+    border-radius: 50%;
+    background: var(--warning);
+    animation: statusPulse 1.5s ease-in-out infinite;
+}
+@keyframes statusPulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.3; }
+}
+.status-badge.complete {
+    background: rgba(0,230,118,0.1);
+    color: var(--success);
+}
+.status-badge.pending {
+    background: rgba(136,136,160,0.1);
+    color: var(--text-muted);
+}
+.status-badge.cancelled {
+    background: rgba(136,136,160,0.1);
+    color: var(--text-muted);
+}
+.status-badge.error {
+    background: rgba(233,69,96,0.1);
+    color: var(--critical);
+}
+
+/* Table cell styles */
+.cell-domain {
+    font-family: var(--mono);
+    font-weight: 600;
+    color: #fff;
+    font-size: 13px;
+}
+.cell-id {
+    font-family: var(--mono);
+    color: var(--text-muted);
+    font-size: 11px;
+}
+.cell-num {
+    font-family: var(--mono);
+    font-weight: 600;
+    color: var(--text);
+    text-align: center;
+}
+.cell-num.has-value { color: #fff; }
+.cell-num.aem-value { color: #69f0ae; }
+.cell-num.vuln-value { color: var(--critical); font-weight: 700; }
+.cell-time {
+    font-family: var(--mono);
+    color: var(--text-dim);
+    font-size: 12px;
+    white-space: nowrap;
+}
+.cell-elapsed {
+    font-family: var(--mono);
+    color: var(--text-dim);
+    font-size: 12px;
+}
+.cell-phase {
+    font-size: 11px;
+    color: var(--text-dim);
+    text-transform: capitalize;
+}
+.dash-empty {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    padding: 80px 20px;
+    color: var(--text-muted);
+    font-size: 14px;
+    gap: 12px;
+}
+.dash-empty-icon { font-size: 48px; opacity: 0.2; }
+
+/* Back button in scanner mode */
+.btn-back-dash {
+    padding: 6px 14px;
+    background: transparent;
+    border: 1px solid var(--border);
+    color: var(--text-dim);
+    border-radius: var(--radius);
+    font-family: var(--sans);
+    font-size: 11px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    cursor: pointer;
+    transition: all var(--transition);
+    display: flex;
+    align-items: center;
+    gap: 5px;
+}
+.btn-back-dash:hover { border-color: var(--info); color: var(--info); }
+
+/* Dashboard footer */
+.dash-footer {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0 28px;
+    background: var(--bg-card);
+    border-top: 1px solid var(--border);
+    font-size: 11px;
+    color: var(--text-muted);
+    min-height: 40px;
+}
+.dash-footer-right {
+    display: flex;
+    gap: 16px;
+    font-family: var(--mono);
+    font-size: 11px;
+    color: var(--text-dim);
+}
+
+/* ── Header ── */
+.header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0 24px;
+    background: var(--bg-card);
+    border-bottom: 1px solid var(--border);
+    z-index: 100;
+}
+.header-left {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+}
+.logo-icon {
+    width: 36px;
+    height: 36px;
+    position: relative;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+.logo-icon .radar-ring {
+    position: absolute;
+    border: 2px solid var(--critical);
+    border-radius: 50%;
+    opacity: 0.3;
+}
+.logo-icon .radar-ring:nth-child(1) { width: 36px; height: 36px; opacity: 0.15; }
+.logo-icon .radar-ring:nth-child(2) { width: 26px; height: 26px; opacity: 0.3; }
+.logo-icon .radar-ring:nth-child(3) { width: 16px; height: 16px; opacity: 0.5; }
+.logo-icon .radar-dot {
+    width: 6px;
+    height: 6px;
+    background: var(--critical);
+    border-radius: 50%;
+    position: relative;
+    z-index: 2;
+}
+.logo-icon .radar-sweep {
+    position: absolute;
+    width: 18px;
+    height: 2px;
+    background: linear-gradient(90deg, var(--critical), transparent);
+    transform-origin: left center;
+    left: 50%;
+    top: 50%;
+    margin-top: -1px;
+    opacity: 0;
+}
+.scanning .logo-icon .radar-sweep {
+    opacity: 0.7;
+    animation: radarSweep 2s linear infinite;
+}
+@keyframes radarSweep {
+    from { transform: rotate(0deg); }
+    to { transform: rotate(360deg); }
+}
+.header-title {
+    font-size: 20px;
+    font-weight: 700;
+    letter-spacing: 3px;
+    color: #fff;
+}
+.header-title span {
+    color: var(--critical);
+}
+.header-subtitle {
+    font-size: 10px;
+    color: var(--text-muted);
+    letter-spacing: 1.5px;
+    text-transform: uppercase;
+    margin-top: -2px;
+}
+.header-right {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+}
+.status-indicator {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 12px;
+    color: var(--text-dim);
+    text-transform: uppercase;
+    letter-spacing: 1px;
+}
+.status-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: var(--text-muted);
+    transition: background var(--transition);
+}
+.scanning .status-dot {
+    background: var(--success);
+    box-shadow: 0 0 8px var(--success);
+    animation: pulse 1.5s ease-in-out infinite;
+}
+@keyframes pulse {
+    0%, 100% { opacity: 1; box-shadow: 0 0 4px var(--success); }
+    50% { opacity: 0.6; box-shadow: 0 0 12px var(--success); }
+}
+.btn-export {
+    padding: 6px 14px;
+    background: var(--accent);
+    color: var(--text);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    font-size: 11px;
+    font-family: var(--sans);
+    cursor: pointer;
+    letter-spacing: 0.5px;
+    text-transform: uppercase;
+    transition: all var(--transition);
+}
+.btn-export:hover { background: var(--accent-light); border-color: var(--accent-light); }
+.btn-export:disabled { opacity: 0.4; cursor: not-allowed; }
+
+/* ── Input Section ── */
+.input-section {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    padding: 12px 24px;
+    gap: 6px;
+    background: var(--bg-primary);
+    border-bottom: 1px solid var(--border);
+}
+.input-row {
+    display: flex;
+    gap: 12px;
+    width: 100%;
+    max-width: 900px;
+}
+.input-domain {
+    flex: 1;
+    padding: 12px 18px;
+    background: var(--bg-input);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    color: #fff;
+    font-family: var(--mono);
+    font-size: 15px;
+    outline: none;
+    transition: border-color var(--transition);
+}
+.input-domain:focus { border-color: var(--accent-light); }
+.input-domain::placeholder { color: var(--text-muted); }
+.btn-scan {
+    padding: 12px 32px;
+    background: var(--critical);
+    color: #fff;
+    border: none;
+    border-radius: var(--radius);
+    font-family: var(--sans);
+    font-size: 14px;
+    font-weight: 700;
+    letter-spacing: 2px;
+    text-transform: uppercase;
+    cursor: pointer;
+    transition: all var(--transition);
+    min-width: 180px;
+    position: relative;
+    overflow: hidden;
+}
+.btn-scan:hover:not(:disabled) { background: #ff5a75; transform: translateY(-1px); box-shadow: 0 4px 20px rgba(233,69,96,0.3); }
+.btn-scan:active:not(:disabled) { transform: translateY(0); }
+.btn-scan:disabled { cursor: not-allowed; }
+.btn-scan.scanning-btn {
+    background: linear-gradient(90deg, var(--critical-dark), var(--critical), var(--critical-dark));
+    background-size: 200% 100%;
+    animation: scanGradient 1.5s ease infinite;
+}
+@keyframes scanGradient {
+    0% { background-position: 0% 50%; }
+    50% { background-position: 100% 50%; }
+    100% { background-position: 0% 50%; }
+}
+.pipeline-text {
+    font-size: 11px;
+    color: var(--text-muted);
+    letter-spacing: 0.5px;
+}
+.pipeline-text span { color: var(--text-dim); }
+
+/* ── Phase Cards ── */
+.main-area {
+    display: grid;
+    grid-template-rows: auto 1fr;
+    overflow: hidden;
+}
+.phase-section {
+    padding: 12px 24px;
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 12px;
+}
+.phase-card {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 14px 16px;
+    position: relative;
+    overflow: hidden;
+    transition: all var(--transition);
+}
+.phase-card.active {
+    border-color: var(--accent-light);
+    box-shadow: 0 0 20px rgba(15, 52, 96, 0.3);
+    animation: phaseGlow 2s ease-in-out infinite;
+}
+@keyframes phaseGlow {
+    0%, 100% { box-shadow: 0 0 10px rgba(15, 52, 96, 0.2); }
+    50% { box-shadow: 0 0 25px rgba(15, 52, 96, 0.5); }
+}
+.phase-card.complete { border-color: var(--success-dim); }
+.phase-card:hover { border-color: var(--info); transform: translateY(-2px); box-shadow: 0 4px 12px rgba(0,229,255,0.15); }
+.phase-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 6px;
+}
+.phase-num {
+    font-size: 12px;
+    color: var(--text-muted);
+    font-weight: 600;
+}
+.phase-card.active .phase-num { color: var(--info); }
+.phase-card.complete .phase-num { color: var(--success); }
+.phase-name {
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--text);
+}
+.phase-status {
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    padding: 2px 8px;
+    border-radius: 3px;
+    background: var(--bg-primary);
+    color: var(--text-muted);
+}
+.phase-card.active .phase-status { color: var(--info); background: rgba(0, 229, 255, 0.1); }
+.phase-card.complete .phase-status { color: var(--success); background: rgba(0, 230, 118, 0.1); }
+.phase-counter {
+    font-family: var(--mono);
+    font-size: 22px;
+    font-weight: 700;
+    color: #fff;
+    margin: 4px 0;
+}
+.phase-counter-label {
+    font-size: 11px;
+    color: var(--text-dim);
+}
+.phase-progress {
+    height: 3px;
+    background: var(--bg-primary);
+    border-radius: 2px;
+    margin-top: 8px;
+    overflow: hidden;
+}
+.phase-progress-bar {
+    height: 100%;
+    width: 0%;
+    border-radius: 2px;
+    background: var(--accent-light);
+    transition: width 0.4s ease;
+}
+.phase-card.active .phase-progress-bar { background: var(--info); }
+.phase-card.complete .phase-progress-bar { background: var(--success); width: 100% !important; }
+
+/* ── Phase Action Buttons (inside phase cards) ── */
+.phase-actions {
+    display: flex;
+    gap: 6px;
+    margin-top: 8px;
+    opacity: 0;
+    transition: opacity var(--transition);
+}
+.phase-card:hover .phase-actions { opacity: 1; }
+.phase-action-btn {
+    flex: 1;
+    padding: 4px 6px;
+    background: var(--bg-primary);
+    border: 1px solid var(--border);
+    border-radius: 3px;
+    color: var(--text-dim);
+    font-family: var(--sans);
+    font-size: 9px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    cursor: pointer;
+    transition: all var(--transition);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 3px;
+}
+.phase-action-btn:hover { border-color: var(--info); color: var(--info); background: rgba(0,229,255,0.05); }
+.phase-action-btn.btn-continue { border-color: var(--success-dim); color: var(--success-dim); }
+.phase-action-btn.btn-continue:hover { border-color: var(--success); color: var(--success); background: rgba(0,230,118,0.08); }
+
+/* ── Phase Detail Modal (enhanced) ── */
+.phase-modal-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 16px 20px;
+    border-bottom: 2px solid var(--border);
+    position: sticky;
+    top: 0;
+    background: #111827;
+    z-index: 2;
+}
+.phase-modal-title {
+    font-weight: 700;
+    font-size: 16px;
+    color: #fff;
+}
+.phase-modal-actions {
+    display: flex;
+    gap: 8px;
+}
+.phase-modal-btn {
+    padding: 6px 14px;
+    background: var(--bg-primary);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    color: var(--text-dim);
+    font-family: var(--sans);
+    font-size: 11px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    cursor: pointer;
+    transition: all var(--transition);
+    display: flex;
+    align-items: center;
+    gap: 5px;
+}
+.phase-modal-btn:hover { border-color: var(--info); color: var(--info); }
+.phase-modal-btn.btn-download:hover { border-color: var(--success); color: var(--success); }
+.phase-modal-btn.btn-upload:hover { border-color: var(--warning); color: var(--warning); }
+.phase-modal-btn.btn-continue-scan {
+    background: rgba(0,230,118,0.1);
+    border-color: var(--success-dim);
+    color: var(--success);
+}
+.phase-modal-btn.btn-continue-scan:hover { background: rgba(0,230,118,0.2); border-color: var(--success); }
+
+/* Upload dropzone inside modal */
+.upload-dropzone {
+    margin: 12px 20px;
+    padding: 20px;
+    border: 2px dashed var(--border);
+    border-radius: 8px;
+    text-align: center;
+    color: var(--text-muted);
+    font-size: 12px;
+    cursor: pointer;
+    transition: all var(--transition);
+    display: none;
+}
+.upload-dropzone.visible { display: block; }
+.upload-dropzone.drag-over {
+    border-color: var(--info);
+    background: rgba(0,229,255,0.05);
+    color: var(--info);
+}
+.upload-dropzone input[type="file"] { display: none; }
+.upload-dropzone-icon {
+    font-size: 28px;
+    margin-bottom: 6px;
+    opacity: 0.4;
+}
+.upload-dropzone-text {
+    font-size: 12px;
+    color: var(--text-dim);
+}
+.upload-dropzone-hint {
+    font-size: 10px;
+    color: var(--text-muted);
+    margin-top: 4px;
+}
+
+/* Phase item list inside modal */
+.phase-item-list {
+    max-height: 50vh;
+    overflow-y: auto;
+}
+.phase-item {
+    padding: 6px 20px;
+    border-bottom: 1px solid #1e293b;
+    font-family: var(--mono);
+    font-size: 12px;
+    word-break: break-all;
+    color: var(--text);
+    transition: background var(--transition);
+}
+.phase-item:hover { background: rgba(255,255,255,0.02); }
+.phase-item-count {
+    padding: 10px 20px;
+    font-size: 11px;
+    color: var(--text-muted);
+    border-bottom: 1px solid var(--border);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+/* Wider modal for phase detail */
+.modal.phase-detail-modal {
+    max-width: 700px;
+}
+
+/* ── Content Panels ── */
+.content-panels {
+    display: grid;
+    grid-template-columns: 3fr 2fr;
+    gap: 0;
+    overflow: hidden;
+    border-top: 1px solid var(--border);
+}
+
+/* Left: Live Feed */
+.live-feed {
+    display: flex;
+    flex-direction: column;
+    border-right: 1px solid var(--border);
+    overflow: hidden;
+}
+.feed-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 10px 16px;
+    background: var(--bg-card);
+    border-bottom: 1px solid var(--border);
+    flex-shrink: 0;
+}
+.feed-title {
+    font-size: 12px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    color: var(--text-dim);
+}
+.btn-pause {
+    padding: 3px 10px;
+    background: transparent;
+    border: 1px solid var(--border);
+    color: var(--text-dim);
+    border-radius: 3px;
+    font-size: 10px;
+    cursor: pointer;
+    font-family: var(--sans);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    transition: all var(--transition);
+}
+.btn-pause:hover { border-color: var(--text-dim); color: var(--text); }
+.btn-pause.paused { border-color: var(--warning); color: var(--warning); }
+.feed-content {
+    flex: 1;
+    overflow-y: auto;
+    padding: 8px 0;
+}
+.feed-entry {
+    display: flex;
+    align-items: flex-start;
+    gap: 10px;
+    padding: 5px 16px;
+    font-family: var(--mono);
+    font-size: 12px;
+    line-height: 1.6;
+    animation: feedFadeIn 0.3s ease;
+    transition: background var(--transition);
+}
+.feed-entry:hover { background: rgba(255,255,255,0.02); }
+@keyframes feedFadeIn {
+    from { opacity: 0; transform: translateY(4px); }
+    to { opacity: 1; transform: translateY(0); }
+}
+.feed-time { color: var(--text-muted); white-space: nowrap; flex-shrink: 0; }
+.feed-icon { flex-shrink: 0; width: 16px; text-align: center; }
+.feed-msg { word-break: break-all; }
+.feed-entry.subdomain .feed-icon { color: var(--info); }
+.feed-entry.subdomain .feed-msg { color: var(--info); }
+.feed-entry.alive .feed-icon { color: var(--success); }
+.feed-entry.alive .feed-msg { color: var(--success); }
+.feed-entry.aem-suspected .feed-icon { color: var(--warning); }
+.feed-entry.aem-suspected .feed-msg { color: var(--warning); }
+.feed-entry.aem-confirmed .feed-icon { color: #69f0ae; }
+.feed-entry.aem-confirmed .feed-msg { color: #69f0ae; font-weight: 600; }
+.feed-entry.vulnerability .feed-icon { color: var(--critical); }
+.feed-entry.vulnerability .feed-msg { color: var(--critical); font-weight: 700; }
+.feed-entry.skipped .feed-icon { color: var(--text-muted); }
+.feed-entry.skipped .feed-msg { color: var(--text-muted); }
+.feed-entry.info .feed-icon { color: var(--text-dim); }
+.feed-entry.info .feed-msg { color: var(--text-dim); }
+
+/* Right: Results */
+.results-panel {
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+}
+.tabs-bar {
+    display: flex;
+    background: var(--bg-card);
+    border-bottom: 1px solid var(--border);
+    flex-shrink: 0;
+}
+.tab-btn {
+    flex: 1;
+    padding: 10px 16px;
+    background: transparent;
+    border: none;
+    border-bottom: 2px solid transparent;
+    color: var(--text-dim);
+    font-family: var(--sans);
+    font-size: 12px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    cursor: pointer;
+    transition: all var(--transition);
+}
+.tab-btn:hover { color: var(--text); background: rgba(255,255,255,0.02); }
+.tab-btn.active { color: #fff; border-bottom-color: var(--critical); }
+.tab-btn .tab-count {
+    display: inline-block;
+    min-width: 18px;
+    padding: 1px 5px;
+    background: var(--bg-primary);
+    border-radius: 9px;
+    font-size: 10px;
+    margin-left: 6px;
+    color: var(--text-muted);
+    font-family: var(--mono);
+}
+.tab-btn.active .tab-count { background: var(--critical); color: #fff; }
+.tab-content {
+    flex: 1;
+    overflow-y: auto;
+    padding: 12px;
+    display: none;
+}
+.tab-content.active { display: block; }
+.empty-state {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    height: 200px;
+    color: var(--text-muted);
+    font-size: 13px;
+    gap: 8px;
+}
+.empty-state-icon { font-size: 32px; opacity: 0.3; }
+
+/* AEM Host Card */
+.aem-card {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-left: 3px solid var(--success);
+    border-radius: var(--radius);
+    padding: 12px 14px;
+    margin-bottom: 8px;
+    animation: feedFadeIn 0.3s ease;
+    transition: all var(--transition);
+}
+.aem-card:hover { background: var(--bg-card-hover); }
+.aem-card.suspected { border-left-color: var(--warning); }
+.aem-card-host {
+    font-family: var(--mono);
+    font-size: 13px;
+    color: #fff;
+    font-weight: 600;
+    margin-bottom: 6px;
+    word-break: break-all;
+}
+.aem-card-meta {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
+    margin-bottom: 6px;
+}
+.badge {
+    display: inline-block;
+    padding: 2px 8px;
+    border-radius: 3px;
+    font-size: 10px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+.badge-confirmed { background: rgba(0,230,118,0.15); color: var(--success); }
+.badge-suspected { background: rgba(255,171,0,0.15); color: var(--warning); }
+.badge-score {
+    font-family: var(--mono);
+    font-size: 11px;
+    color: var(--text-dim);
+}
+.aem-tags {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px;
+    margin-top: 6px;
+}
+.aem-tag {
+    padding: 2px 7px;
+    background: var(--bg-primary);
+    border: 1px solid var(--border);
+    border-radius: 3px;
+    font-size: 10px;
+    color: var(--text-dim);
+    font-family: var(--mono);
+}
+.aem-detail-toggle {
+    margin-top: 8px;
+    font-size: 11px;
+    color: var(--accent-light);
+    cursor: pointer;
+    background: none;
+    border: none;
+    font-family: var(--sans);
+    padding: 0;
+}
+.aem-detail-toggle:hover { color: var(--info); }
+.aem-detail {
+    display: none;
+    margin-top: 8px;
+    padding: 8px 10px;
+    background: var(--bg-primary);
+    border-radius: 4px;
+    font-family: var(--mono);
+    font-size: 11px;
+    color: var(--text-dim);
+    line-height: 1.7;
+    white-space: pre-wrap;
+    word-break: break-all;
+}
+.aem-detail.open { display: block; }
+
+/* Vulnerability Card */
+.vuln-card {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-left: 3px solid var(--critical);
+    border-radius: var(--radius);
+    padding: 12px 14px;
+    margin-bottom: 8px;
+    animation: feedFadeIn 0.3s ease;
+    transition: all var(--transition);
+}
+.vuln-card:hover { background: var(--bg-card-hover); }
+.vuln-host {
+    font-family: var(--mono);
+    font-size: 12px;
+    color: var(--critical);
+    font-weight: 700;
+    margin-bottom: 4px;
+    word-break: break-all;
+}
+.vuln-endpoint {
+    font-family: var(--mono);
+    font-size: 11px;
+    color: var(--text);
+    background: var(--bg-primary);
+    padding: 6px 10px;
+    border-radius: 4px;
+    margin: 6px 0;
+    word-break: break-all;
+    position: relative;
+}
+.vuln-meta {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px;
+    margin-top: 6px;
+}
+.vuln-technique {
+    font-size: 10px;
+    padding: 2px 7px;
+    background: rgba(233,69,96,0.12);
+    color: var(--critical);
+    border-radius: 3px;
+    font-family: var(--mono);
+    font-weight: 600;
+}
+.vuln-size {
+    font-size: 10px;
+    color: var(--text-muted);
+    font-family: var(--mono);
+}
+.vuln-type {
+    font-size: 10px;
+    color: var(--text-muted);
+    font-family: var(--mono);
+}
+.badge-genuine { background: rgba(0,230,118,0.15); color: var(--success); }
+.btn-copy {
+    padding: 3px 8px;
+    background: transparent;
+    border: 1px solid var(--border);
+    color: var(--text-muted);
+    border-radius: 3px;
+    font-size: 10px;
+    cursor: pointer;
+    font-family: var(--sans);
+    transition: all var(--transition);
+    margin-left: auto;
+}
+.btn-copy:hover { border-color: var(--text-dim); color: var(--text); }
+.btn-copy.copied { border-color: var(--success); color: var(--success); }
+
+/* All Hosts Table */
+.hosts-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 12px;
+}
+.hosts-table th {
+    text-align: left;
+    padding: 8px 10px;
+    background: var(--bg-card);
+    border-bottom: 1px solid var(--border);
+    color: var(--text-dim);
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    cursor: pointer;
+    user-select: none;
+    position: sticky;
+    top: 0;
+    z-index: 2;
+}
+.hosts-table th:hover { color: var(--text); }
+.hosts-table td {
+    padding: 6px 10px;
+    border-bottom: 1px solid rgba(42,42,64,0.5);
+    font-family: var(--mono);
+    font-size: 11px;
+    color: var(--text-dim);
+}
+.hosts-table tr:hover td { background: rgba(255,255,255,0.015); }
+.aem-yes { color: var(--success); font-weight: 700; }
+.aem-no { color: var(--text-muted); }
+
+/* ── Footer ── */
+.footer {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 32px;
+    padding: 0 24px;
+    background: var(--bg-card);
+    border-top: 1px solid var(--border);
+    flex-shrink: 0;
+}
+.footer-stat {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 12px;
+    color: var(--text-dim);
+}
+.footer-stat-value {
+    font-family: var(--mono);
+    font-weight: 700;
+    color: #fff;
+    font-size: 13px;
+}
+.footer-stat-label {
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+.footer-stat.critical .footer-stat-value { color: var(--critical); }
+
+/* ── Summary Modal ── */
+.modal-overlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(0,0,0,0.7);
+    display: none;
+    align-items: center;
+    justify-content: center;
+    z-index: 1000;
+    backdrop-filter: blur(4px);
+}
+.modal-overlay.open { display: flex; }
+.modal {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 32px;
+    max-width: 560px;
+    width: 90%;
+    animation: modalIn 0.3s ease;
+}
+@keyframes modalIn {
+    from { opacity: 0; transform: scale(0.95) translateY(10px); }
+    to { opacity: 1; transform: scale(1) translateY(0); }
+}
+.modal h2 {
+    font-size: 20px;
+    margin-bottom: 20px;
+    text-align: center;
+    color: #fff;
+    letter-spacing: 1px;
+}
+.modal-stats {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 12px;
+    margin-bottom: 24px;
+}
+.modal-stat {
+    background: var(--bg-primary);
+    border-radius: var(--radius);
+    padding: 14px;
+    text-align: center;
+}
+.modal-stat-value {
+    font-family: var(--mono);
+    font-size: 28px;
+    font-weight: 700;
+    color: #fff;
+}
+.modal-stat-value.vuln-value { color: var(--critical); }
+.modal-stat-label {
+    font-size: 11px;
+    color: var(--text-dim);
+    margin-top: 4px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+.btn-close-modal {
+    display: block;
+    width: 100%;
+    padding: 12px;
+    background: var(--accent);
+    border: none;
+    border-radius: var(--radius);
+    color: #fff;
+    font-family: var(--sans);
+    font-size: 14px;
+    font-weight: 600;
+    cursor: pointer;
+    letter-spacing: 1px;
+    transition: background var(--transition);
+}
+.btn-close-modal:hover { background: var(--accent-light); }
+
+/* ── History Dropdown ── */
+.history-btn {
+    padding: 6px 14px;
+    background: transparent;
+    border: 1px solid var(--border);
+    color: var(--text-dim);
+    border-radius: var(--radius);
+    font-size: 11px;
+    font-family: var(--sans);
+    cursor: pointer;
+    letter-spacing: 0.5px;
+    text-transform: uppercase;
+    transition: all var(--transition);
+    position: relative;
+}
+.history-btn:hover { border-color: var(--text-dim); color: var(--text); }
+.history-dropdown {
+    display: none;
+    position: absolute;
+    top: calc(100% + 6px);
+    right: 0;
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    min-width: 280px;
+    z-index: 200;
+    box-shadow: 0 8px 30px rgba(0,0,0,0.4);
+}
+.history-dropdown.open { display: block; }
+.history-item {
+    padding: 10px 14px;
+    border-bottom: 1px solid var(--border);
+    cursor: pointer;
+    transition: background var(--transition);
+    font-size: 12px;
+}
+.history-item:last-child { border-bottom: none; }
+.history-item:hover { background: var(--bg-card-hover); }
+.history-domain { font-family: var(--mono); color: #fff; font-weight: 600; }
+.history-meta { color: var(--text-muted); font-size: 10px; margin-top: 2px; }
+.history-empty { padding: 20px; text-align: center; color: var(--text-muted); font-size: 12px; }
+
+/* ── Toast / Notification ── */
+.toast {
+    position: fixed;
+    top: 70px;
+    right: 24px;
+    background: var(--critical);
+    color: #fff;
+    padding: 12px 20px;
+    border-radius: var(--radius);
+    font-size: 13px;
+    font-weight: 600;
+    z-index: 500;
+    animation: toastIn 0.4s ease, toastOut 0.4s ease 3.6s forwards;
+    box-shadow: 0 4px 20px rgba(233,69,96,0.4);
+}
+@keyframes toastIn {
+    from { opacity: 0; transform: translateX(40px); }
+    to { opacity: 1; transform: translateX(0); }
+}
+@keyframes toastOut {
+    from { opacity: 1; }
+    to { opacity: 0; transform: translateX(40px); }
+}
+</style>
+</head>
+<body>
+<div id="app">
+    <!-- HEADER -->
+    <header class="header" id="header">
+        <div class="header-left">
+            <div class="logo-icon">
+                <div class="radar-ring"></div>
+                <div class="radar-ring"></div>
+                <div class="radar-ring"></div>
+                <div class="radar-dot"></div>
+                <div class="radar-sweep"></div>
+            </div>
+            <div>
+                <div class="header-title">AEM <span>RECON</span></div>
+                <div class="header-subtitle">Dispatcher Bypass Scanner</div>
+            </div>
+        </div>
+        <div class="header-right">
+            <button class="btn-back-dash" id="backToDash" style="display:none" onclick="showDashboard()">&#9664; Dashboard</button>
+            <div class="status-indicator">
+                <div class="status-dot" id="statusDot"></div>
+                <span id="statusText">IDLE</span>
+            </div>
+            <div style="position:relative;">
+                <button class="history-btn" id="historyBtn" title="Scan History">History</button>
+                <div class="history-dropdown" id="historyDropdown"></div>
+            </div>
+            <button class="btn-export" id="exportBtn" disabled>Export JSON</button>
+        </div>
+    </header>
+
+    <!-- DASHBOARD VIEW -->
+    <div id="dashboardView">
+        <div class="dash-header">
+            <div class="dash-header-left">
+                <h2>Scan Operations</h2>
+                <p>All reconnaissance scans &mdash; click a row to view details</p>
+            </div>
+            <div class="dash-header-right">
+                <button class="btn-refresh-dash" id="refreshDash" onclick="loadDashboard()">&#8635; Refresh</button>
+                <button class="btn-new-scan" id="newScanBtn" onclick="showScanner()">&#43; New Scan</button>
+            </div>
+        </div>
+        <div class="dash-stats" id="dashStats">
+            <div class="dash-stat-card stat-total">
+                <div class="dash-stat-value" id="dsTotalScans">0</div>
+                <div class="dash-stat-label">Total Scans</div>
+            </div>
+            <div class="dash-stat-card stat-running">
+                <div class="dash-stat-value" id="dsRunning">0</div>
+                <div class="dash-stat-label">Running</div>
+            </div>
+            <div class="dash-stat-card stat-complete">
+                <div class="dash-stat-value" id="dsComplete">0</div>
+                <div class="dash-stat-label">Completed</div>
+            </div>
+            <div class="dash-stat-card stat-aem">
+                <div class="dash-stat-value" id="dsTotalAem">0</div>
+                <div class="dash-stat-label">AEM Hosts Found</div>
+            </div>
+            <div class="dash-stat-card stat-vuln">
+                <div class="dash-stat-value" id="dsTotalVulns">0</div>
+                <div class="dash-stat-label">Vulnerabilities</div>
+            </div>
+        </div>
+        <div class="dash-table-wrap" id="dashTableWrap">
+            <table class="dash-table" id="dashTable">
+                <thead>
+                    <tr>
+                        <th>Status</th>
+                        <th>Target</th>
+                        <th>Scan ID</th>
+                        <th>Phase</th>
+                        <th style="text-align:center">Subs</th>
+                        <th style="text-align:center">Alive</th>
+                        <th style="text-align:center">AEM</th>
+                        <th style="text-align:center">Vulns</th>
+                        <th>Started</th>
+                        <th>Duration</th>
+                    </tr>
+                </thead>
+                <tbody id="dashBody"></tbody>
+            </table>
+        </div>
+        <div class="dash-footer">
+            <span>AEM RECON &mdash; Dispatcher Bypass Scanner v2.0</span>
+            <div class="dash-footer-right">
+                <span id="dashLastRefresh"></span>
+            </div>
+        </div>
+    </div>
+
+    <!-- INPUT -->
+    <section class="input-section">
+        <div class="input-row">
+            <input type="text" class="input-domain" id="domainInput"
+                   placeholder="Enter domain (e.g., intel.com) or paste URL list"
+                   autocomplete="off" spellcheck="false">
+            <button class="btn-scan" id="scanBtn">LAUNCH SCAN</button>
+        </div>
+        <div class="pipeline-text">
+            <span>Pipeline:</span> Subfinder <span>&rarr;</span> httpx <span>&rarr;</span> AEM Detect <span>&rarr;</span> Bypass Scan
+        </div>
+    </section>
+
+    <!-- MAIN AREA -->
+    <div class="main-area">
+        <!-- Phase Cards -->
+        <div class="phase-section">
+            <div class="phase-card" id="phase-1" data-phase="subdomains">
+                <div class="phase-header">
+                    <div><span class="phase-num">&oplus;</span> <span class="phase-name">Subdomains</span></div>
+                    <span class="phase-status" id="phase-1-status">WAITING</span>
+                </div>
+                <div class="phase-counter" id="phase-1-count">0</div>
+                <div class="phase-counter-label">found</div>
+                <div class="phase-progress"><div class="phase-progress-bar" id="phase-1-bar"></div></div>
+                <div class="phase-actions">
+                    <button class="phase-action-btn" onclick="event.stopPropagation();downloadPhaseTXT(1)" title="Download TXT">&#8681; TXT</button>
+                    <button class="phase-action-btn" onclick="event.stopPropagation();showPhaseUpload(2)" title="Upload &amp; Continue from Phase 2">&#8682; Upload</button>
+                </div>
+            </div>
+            <div class="phase-card" id="phase-2" data-phase="alive">
+                <div class="phase-header">
+                    <div><span class="phase-num">&otimes;</span> <span class="phase-name">Alive Hosts</span></div>
+                    <span class="phase-status" id="phase-2-status">WAITING</span>
+                </div>
+                <div class="phase-counter" id="phase-2-count">0</div>
+                <div class="phase-counter-label">alive</div>
+                <div class="phase-progress"><div class="phase-progress-bar" id="phase-2-bar"></div></div>
+                <div class="phase-actions">
+                    <button class="phase-action-btn" onclick="event.stopPropagation();downloadPhaseTXT(2)" title="Download TXT">&#8681; TXT</button>
+                    <button class="phase-action-btn" onclick="event.stopPropagation();showPhaseUpload(3)" title="Upload &amp; Continue from Phase 3">&#8682; Upload</button>
+                </div>
+            </div>
+            <div class="phase-card" id="phase-3" data-phase="aem">
+                <div class="phase-header">
+                    <div><span class="phase-num">&oplus;</span> <span class="phase-name">AEM Detected</span></div>
+                    <span class="phase-status" id="phase-3-status">WAITING</span>
+                </div>
+                <div class="phase-counter" id="phase-3-count">0</div>
+                <div class="phase-counter-label">AEM hosts</div>
+                <div class="phase-progress"><div class="phase-progress-bar" id="phase-3-bar"></div></div>
+                <div class="phase-actions">
+                    <button class="phase-action-btn" onclick="event.stopPropagation();downloadPhaseTXT(3)" title="Download TXT">&#8681; TXT</button>
+                    <button class="phase-action-btn" onclick="event.stopPropagation();showPhaseUpload(4)" title="Upload &amp; Continue from Phase 4">&#8682; Upload</button>
+                </div>
+            </div>
+            <div class="phase-card" id="phase-4" data-phase="vulns">
+                <div class="phase-header">
+                    <div><span class="phase-num">&oplus;</span> <span class="phase-name">Vulnerabilities</span></div>
+                    <span class="phase-status" id="phase-4-status">WAITING</span>
+                </div>
+                <div class="phase-counter" id="phase-4-count">0</div>
+                <div class="phase-counter-label">vulnerable</div>
+                <div class="phase-progress"><div class="phase-progress-bar" id="phase-4-bar"></div></div>
+                <div class="phase-actions">
+                    <button class="phase-action-btn" onclick="event.stopPropagation();downloadPhaseTXT(4)" title="Download TXT">&#8681; TXT</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Content -->
+        <div class="content-panels">
+            <!-- Live Feed -->
+            <div class="live-feed">
+                <div class="feed-header">
+                    <span class="feed-title">Live Feed</span>
+                    <button class="btn-pause" id="pauseBtn" title="Pause auto-scroll">Auto-scroll ON</button>
+                </div>
+                <div class="feed-content" id="feedContent">
+                    <div class="empty-state" id="feedEmpty">
+                        <div class="empty-state-icon">&equiv;</div>
+                        <div>Waiting for scan to start...</div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Results Panel -->
+            <div class="results-panel">
+                <div class="tabs-bar">
+                    <button class="tab-btn active" data-tab="aem" id="tabAem">
+                        AEM Hosts <span class="tab-count" id="tabAemCount">0</span>
+                    </button>
+                    <button class="tab-btn" data-tab="vulns" id="tabVulns">
+                        Vulnerabilities <span class="tab-count" id="tabVulnsCount">0</span>
+                    </button>
+                    <button class="tab-btn" data-tab="hosts" id="tabHosts">
+                        All Hosts <span class="tab-count" id="tabHostsCount">0</span>
+                    </button>
+                </div>
+                <div class="tab-content active" id="panelAem">
+                    <div class="empty-state" id="aemEmpty">
+                        <div class="empty-state-icon">&loz;</div>
+                        <div>No AEM hosts detected yet</div>
+                    </div>
+                </div>
+                <div class="tab-content" id="panelVulns">
+                    <div class="empty-state" id="vulnEmpty">
+                        <div class="empty-state-icon">&Delta;</div>
+                        <div>No vulnerabilities found yet</div>
+                    </div>
+                </div>
+                <div class="tab-content" id="panelHosts">
+                    <table class="hosts-table" id="hostsTable">
+                        <thead>
+                            <tr>
+                                <th data-sort="host">Host</th>
+                                <th data-sort="status">Status</th>
+                                <th data-sort="aem">AEM</th>
+                            </tr>
+                        </thead>
+                        <tbody id="hostsBody"></tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- FOOTER -->
+    <footer class="footer">
+        <div class="footer-stat">
+            <span class="footer-stat-value" id="footSubdomains">0</span>
+            <span class="footer-stat-label">Subdomains</span>
+        </div>
+        <div class="footer-stat">
+            <span class="footer-stat-value" id="footAlive">0</span>
+            <span class="footer-stat-label">Alive</span>
+        </div>
+        <div class="footer-stat">
+            <span class="footer-stat-value" id="footAem">0</span>
+            <span class="footer-stat-label">AEM Detected</span>
+        </div>
+        <div class="footer-stat critical">
+            <span class="footer-stat-value" id="footVulns">0</span>
+            <span class="footer-stat-label">Vulnerabilities</span>
+        </div>
+        <div class="footer-stat">
+            <span class="footer-stat-value" id="footTime">00:00</span>
+            <span class="footer-stat-label">Elapsed</span>
+        </div>
+    </footer>
+</div>
+
+<!-- SUMMARY MODAL -->
+<div class="modal-overlay" id="modalOverlay">
+    <div class="modal">
+        <h2 id="modalTitle">SCAN COMPLETE</h2>
+        <div class="modal-stats" id="modalStats"></div>
+        <button class="btn-close-modal" id="modalClose">CLOSE</button>
+    </div>
+</div>
+
+<script>
+(function () {
+    'use strict';
+
+    // ── State ──
+    const state = {
+        scanning: false,
+        scanId: null,
+        ws: null,
+        autoScroll: true,
+        startTime: null,
+        timerInterval: null,
+        counts: { subdomains: 0, alive: 0, aem: 0, vulns: 0 },
+        aemHosts: [],
+        vulnerabilities: [],
+        allHosts: [],
+        subdomainsList: [],
+        aliveList: [],
+        feedEntries: 0,
+        domain: ''
+    };
+
+    // ── DOM Refs ──
+    const $ = (sel) => document.querySelector(sel);
+    const domainInput = $('#domainInput');
+    const scanBtn = $('#scanBtn');
+    const feedContent = $('#feedContent');
+    const feedEmpty = $('#feedEmpty');
+    const pauseBtn = $('#pauseBtn');
+    const exportBtn = $('#exportBtn');
+    const historyBtn = $('#historyBtn');
+    const historyDropdown = $('#historyDropdown');
+    const modalOverlay = $('#modalOverlay');
+    const modalClose = $('#modalClose');
+    const modalStats = $('#modalStats');
+    const header = $('#header');
+
+    // ── Phase map ──
+    const phaseMap = { subdomains: 1, alive: 2, aem: 3, vulns: 4,
+        1: 1, 2: 2, 3: 3, 4: 4,
+        'subdomain_enumeration': 1, 'alive_check': 2, 'aem_detection': 3, 'bypass_scan': 4,
+        'Subdomain Enumeration': 1, 'Alive Check': 2, 'AEM Detection': 3, 'Bypass Scan': 4 };
+
+    // ── Animated counter ──
+    function animateCounter(el, target) {
+        const current = parseInt(el.textContent.replace(/,/g, '')) || 0;
+        if (current === target) return;
+        const diff = target - current;
+        const steps = Math.min(Math.abs(diff), 20);
+        const stepVal = diff / steps;
+        let frame = 0;
+        const interval = setInterval(() => {
+            frame++;
+            const val = Math.round(current + stepVal * frame);
+            el.textContent = val.toLocaleString();
+            if (frame >= steps) {
+                el.textContent = target.toLocaleString();
+                clearInterval(interval);
+            }
+        }, 30);
+    }
+
+    // ── Update counters ──
+    function updateCounters() {
+        animateCounter($('#phase-1-count'), state.counts.subdomains);
+        animateCounter($('#phase-2-count'), state.counts.alive);
+        animateCounter($('#phase-3-count'), state.counts.aem);
+        animateCounter($('#phase-4-count'), state.counts.vulns);
+
+        $('#footSubdomains').textContent = state.counts.subdomains.toLocaleString();
+        $('#footAlive').textContent = state.counts.alive.toLocaleString();
+        $('#footAem').textContent = state.counts.aem.toLocaleString();
+        $('#footVulns').textContent = state.counts.vulns.toLocaleString();
+
+        $('#tabAemCount').textContent = state.counts.aem;
+        $('#tabVulnsCount').textContent = state.counts.vulns;
+        $('#tabHostsCount').textContent = state.counts.alive;
+    }
+
+    // ── Phase update ──
+    function setPhase(phaseName, status, progress) {
+        const num = phaseMap[phaseName];
+        if (!num) return;
+        const card = $(`#phase-${num}`);
+        const statusEl = $(`#phase-${num}-status`);
+        const bar = $(`#phase-${num}-bar`);
+        card.classList.remove('active', 'complete');
+        if (status === 'running') {
+            card.classList.add('active');
+            statusEl.textContent = 'RUNNING';
+        } else if (status === 'complete') {
+            card.classList.add('complete');
+            statusEl.textContent = 'COMPLETE';
+        } else {
+            statusEl.textContent = 'WAITING';
+        }
+        if (progress !== undefined) {
+            bar.style.width = Math.min(progress, 100) + '%';
+        }
+    }
+
+    // ── Feed ──
+    function addFeedEntry(type, message, icon) {
+        if (feedEmpty) feedEmpty.remove();
+        const icons = {
+            subdomain: '◇',
+            alive: '●',
+            'aem-suspected': '▲',
+            'aem-confirmed': '★',
+            vulnerability: '⚠',
+            skipped: '·',
+            info: '›'
+        };
+        const div = document.createElement('div');
+        div.className = 'feed-entry ' + type;
+        const now = new Date();
+        const ts = now.toTimeString().slice(0, 8);
+        div.innerHTML =
+            '<span class="feed-time">' + ts + '</span>' +
+            '<span class="feed-icon">' + (icon || icons[type] || '›') + '</span>' +
+            '<span class="feed-msg">' + escapeHtml(message) + '</span>';
+        feedContent.appendChild(div);
+        state.feedEntries++;
+        // Trim to last 2000
+        while (feedContent.children.length > 2000) {
+            feedContent.removeChild(feedContent.firstChild);
+        }
+        if (state.autoScroll) {
+            feedContent.scrollTop = feedContent.scrollHeight;
+        }
+    }
+
+    function escapeHtml(s) {
+        const d = document.createElement('div');
+        d.textContent = s;
+        return d.innerHTML;
+    }
+
+    // ── AEM Host Card ──
+    function addAemHost(data) {
+        const empty = $('#aemEmpty');
+        if (empty) empty.remove();
+        state.aemHosts.push(data);
+        const panel = $('#panelAem');
+        const card = document.createElement('div');
+        const confirmed = data.confidence === 'confirmed';
+        card.className = 'aem-card' + (confirmed ? '' : ' suspected');
+        const tags = (data.reasons || []).map(r =>
+            '<span class="aem-tag">' + escapeHtml(r) + '</span>'
+        ).join('');
+        const detailId = 'aem-detail-' + state.aemHosts.length;
+        card.innerHTML =
+            '<div class="aem-card-host">' + escapeHtml(data.host || '') + '</div>' +
+            '<div class="aem-card-meta">' +
+                '<span class="badge ' + (confirmed ? 'badge-confirmed' : 'badge-suspected') + '">' +
+                    (confirmed ? 'CONFIRMED' : 'SUSPECTED') +
+                '</span>' +
+                (data.score !== undefined ? '<span class="badge-score">Score: ' + data.score + '</span>' : '') +
+            '</div>' +
+            '<div class="aem-tags">' + tags + '</div>' +
+            '<button class="aem-detail-toggle" data-target="' + detailId + '">Show details</button>' +
+            '<div class="aem-detail" id="' + detailId + '">' + escapeHtml(JSON.stringify(data, null, 2)) + '</div>';
+        panel.appendChild(card);
+    }
+
+    // ── Vulnerability Card ──
+    function addVulnerability(data) {
+        const empty = $('#vulnEmpty');
+        if (empty) empty.remove();
+        state.vulnerabilities.push(data);
+        const panel = $('#panelVulns');
+        const card = document.createElement('div');
+        card.className = 'vuln-card';
+        const fullUrl = data.url || (data.host + (data.endpoint || ''));
+        card.innerHTML =
+            '<div class="vuln-host">' + escapeHtml(data.host || '') + '</div>' +
+            '<div class="vuln-endpoint">' + escapeHtml(data.endpoint || data.url || '') + '</div>' +
+            '<div class="vuln-meta">' +
+                (data.technique ? '<span class="vuln-technique">' + escapeHtml(data.technique) + '</span>' : '') +
+                (data.size ? '<span class="vuln-size">' + data.size + ' bytes</span>' : '') +
+                (data.content_type ? '<span class="vuln-type">' + escapeHtml(data.content_type) + '</span>' : '') +
+                (data.genuine ? '<span class="badge badge-genuine">GENUINE</span>' : '') +
+                '<button class="btn-copy" data-url="' + escapeHtml(fullUrl) + '" title="Copy URL">COPY</button>' +
+            '</div>';
+        panel.appendChild(card);
+        showToast('Vulnerability found: ' + (data.host || ''));
+    }
+
+    // ── All Hosts Table ──
+    function addHostRow(data) {
+        state.allHosts.push(data);
+        const body = $('#hostsBody');
+        const tr = document.createElement('tr');
+        const aemClass = data.is_aem ? 'aem-yes' : 'aem-no';
+        tr.innerHTML =
+            '<td>' + escapeHtml(data.host || '') + '</td>' +
+            '<td>' + (data.status_code || '-') + '</td>' +
+            '<td class="' + aemClass + '">' + (data.is_aem ? 'YES' : 'NO') + '</td>';
+        body.appendChild(tr);
+    }
+
+    // ── Toast ──
+    function showToast(msg) {
+        const t = document.createElement('div');
+        t.className = 'toast';
+        t.textContent = msg;
+        document.body.appendChild(t);
+        setTimeout(() => { if (t.parentNode) t.remove(); }, 4200);
+    }
+
+    // ── Timer ──
+    function startTimer() {
+        state.startTime = Date.now();
+        state.timerInterval = setInterval(() => {
+            const elapsed = Math.floor((Date.now() - state.startTime) / 1000);
+            const m = String(Math.floor(elapsed / 60)).padStart(2, '0');
+            const s = String(elapsed % 60).padStart(2, '0');
+            $('#footTime').textContent = m + ':' + s;
+        }, 1000);
+    }
+    function stopTimer() {
+        if (state.timerInterval) {
+            clearInterval(state.timerInterval);
+            state.timerInterval = null;
+        }
+    }
+
+    // ── Scan state ──
+    function setScanningState(active) {
+        state.scanning = active;
+        if (active) {
+            header.classList.add('scanning');
+            scanBtn.classList.add('scanning-btn');
+            scanBtn.textContent = 'SCANNING…';
+            scanBtn.disabled = true;
+            domainInput.disabled = true;
+            $('#statusText').textContent = 'SCANNING';
+            exportBtn.disabled = true;
+        } else {
+            header.classList.remove('scanning');
+            scanBtn.classList.remove('scanning-btn');
+            scanBtn.textContent = 'LAUNCH SCAN';
+            scanBtn.disabled = false;
+            domainInput.disabled = false;
+            $('#statusText').textContent = 'IDLE';
+            exportBtn.disabled = state.vulnerabilities.length === 0 && state.aemHosts.length === 0;
+        }
+    }
+
+    // ── WebSocket handler ──
+    function handleMessage(data) {
+        switch (data.type) {
+            case 'phase':
+                setPhase(data.phase, data.status, data.progress);
+                addFeedEntry('info', 'Phase: ' + data.phase + ' → ' + data.status);
+                break;
+
+            case 'progress':
+                if (data.phase !== undefined) {
+                    const num = phaseMap[data.phase];
+                    let pct = data.progress;
+                    if (pct === undefined && data.current && data.total) {
+                        pct = Math.round((data.current / data.total) * 100);
+                    }
+                    if (num && pct !== undefined) $(`#phase-${num}-bar`).style.width = Math.min(pct, 100) + '%';
+                }
+                if (data.counts) {
+                    Object.assign(state.counts, data.counts);
+                    updateCounters();
+                }
+                if (data.current !== undefined) {
+                    const num = phaseMap[data.phase];
+                    if (num === 1) { state.counts.subdomains = data.current; }
+                    else if (num === 2 && data.message) { addFeedEntry('info', data.message); }
+                    updateCounters();
+                }
+                break;
+
+            case 'host_found':
+                state.counts.alive++;
+                state.aliveList.push(data.host);
+                updateCounters();
+                addHostRow({ host: data.host, status_code: data.status_code || 200, is_aem: false });
+                addFeedEntry('alive', data.host);
+                break;
+
+            case 'subdomain_found':
+                state.counts.subdomains++;
+                state.subdomainsList.push(data.subdomain || data.host);
+                updateCounters();
+                break;
+
+            case 'aem_detected':
+                state.counts.aem++;
+                updateCounters();
+                addAemHost(data);
+                // Update host table
+                const existing = state.allHosts.find(h => h.host === data.host);
+                if (existing) {
+                    existing.is_aem = true;
+                    rebuildHostTable();
+                }
+                const label = data.confidence === 'confirmed' ? 'AEM CONFIRMED' : 'AEM suspected';
+                addFeedEntry(
+                    data.confidence === 'confirmed' ? 'aem-confirmed' : 'aem-suspected',
+                    label + ': ' + (data.host || '')
+                );
+                break;
+
+            case 'vulnerability':
+                state.counts.vulns++;
+                updateCounters();
+                addVulnerability(data);
+                addFeedEntry('vulnerability',
+                    'VULN: ' + (data.host || '') + ' ' + (data.endpoint || data.url || '') +
+                    ' [' + (data.technique || '') + ']'
+                );
+                break;
+
+            case 'host_skipped':
+                addFeedEntry('skipped', 'Skipped: ' + (data.host || '') + (data.reason ? ' (' + data.reason + ')' : ''));
+                break;
+
+            case 'scan_complete':
+                setScanningState(false);
+                stopTimer();
+                setPhase('vulns', 'complete', 100);
+                showSummaryModal();
+                saveScanHistory();
+                break;
+
+            case 'error':
+                addFeedEntry('vulnerability', 'ERROR: ' + (data.message || 'Unknown error'));
+                setScanningState(false);
+                stopTimer();
+                break;
+
+            case 'log':
+                addFeedEntry(data.level || 'info', data.message || '');
+                break;
+
+            default:
+                addFeedEntry('info', JSON.stringify(data));
+        }
+    }
+
+    // ── Rebuild host table (after AEM update) ──
+    function rebuildHostTable() {
+        const body = $('#hostsBody');
+        body.innerHTML = '';
+        state.allHosts.forEach(h => {
+            const tr = document.createElement('tr');
+            const aemClass = h.is_aem ? 'aem-yes' : 'aem-no';
+            tr.innerHTML =
+                '<td>' + escapeHtml(h.host) + '</td>' +
+                '<td>' + (h.status_code || '-') + '</td>' +
+                '<td class="' + aemClass + '">' + (h.is_aem ? 'YES' : 'NO') + '</td>';
+            body.appendChild(tr);
+        });
+    }
+
+    // ── Modal title helper ──
+    const modalTitle = $('#modalTitle');
+    function setModalTitle(text) { modalTitle.textContent = text; }
+
+    // ── Summary Modal ──
+    function showSummaryModal() {
+        setModalTitle('SCAN COMPLETE');
+        modalStats.innerHTML =
+            '<div class="modal-stat"><div class="modal-stat-value">' + state.counts.subdomains.toLocaleString() + '</div><div class="modal-stat-label">Subdomains</div></div>' +
+            '<div class="modal-stat"><div class="modal-stat-value">' + state.counts.alive.toLocaleString() + '</div><div class="modal-stat-label">Alive Hosts</div></div>' +
+            '<div class="modal-stat"><div class="modal-stat-value">' + state.counts.aem.toLocaleString() + '</div><div class="modal-stat-label">AEM Detected</div></div>' +
+            '<div class="modal-stat"><div class="modal-stat-value vuln-value">' + state.counts.vulns.toLocaleString() + '</div><div class="modal-stat-label">Vulnerabilities</div></div>';
+        modalOverlay.classList.add('open');
+    }
+
+    // ── Phase data helpers ──
+    function getPhaseData(phaseNum) {
+        if (phaseNum === 1) return { title: 'Subdomains', items: state.subdomainsList, rawItems: state.subdomainsList };
+        if (phaseNum === 2) return { title: 'Alive Hosts', items: state.aliveList, rawItems: state.aliveList };
+        if (phaseNum === 3) return {
+            title: 'AEM Detected Hosts',
+            items: state.aemHosts.map(h => {
+                const badge = h.confidence === 'confirmed'
+                    ? '<span style="color:#00e676;font-weight:bold">CONFIRMED</span>'
+                    : '<span style="color:#ffd600">SUSPECTED</span>';
+                return h.host + ' &mdash; ' + badge + ' (score: ' + (h.score||'?') + ')';
+            }),
+            rawItems: state.aemHosts.map(h => h.host)
+        };
+        if (phaseNum === 4) return {
+            title: 'Vulnerabilities',
+            items: state.vulnerabilities.map(v =>
+                (v.host||'') + (v.url||v.endpoint||'') + ' [' + (v.technique||'') + '] ' + (v.status_code||'')
+            ),
+            rawItems: state.vulnerabilities.map(v => (v.host||'') + (v.url||v.endpoint||''))
+        };
+        return { title: '', items: [], rawItems: [] };
+    }
+
+    const phaseNames = { 1: 'Subdomains', 2: 'Alive Hosts', 3: 'AEM Detection', 4: 'Bypass Scan' };
+    const nextPhaseNames = { 1: 'Alive Check', 2: 'AEM Detection', 3: 'Bypass Scan', 4: null };
+
+    // ── Phase Detail Modal (enhanced with download/upload/continue) ──
+    function showPhaseDetail(phaseNum) {
+        const pd = getPhaseData(phaseNum);
+        const count = pd.rawItems.length;
+        const nextPhase = phaseNum + 1;
+        const canContinue = nextPhase <= 4;
+
+        // Header with title + action buttons
+        let headerHtml =
+            '<div class="phase-modal-header">' +
+                '<span class="phase-modal-title">' + pd.title + ' (' + count + ')</span>' +
+                '<div class="phase-modal-actions">' +
+                    '<button class="phase-modal-btn btn-download" onclick="downloadPhaseTXT(' + phaseNum + ')" title="Download as TXT">&#8681; Download TXT</button>' +
+                    (canContinue
+                        ? '<button class="phase-modal-btn btn-upload" onclick="toggleUploadZone()" title="Upload list for next phase">&#8682; Upload</button>'
+                          + '<button class="phase-modal-btn btn-continue-scan" onclick="continueFromPhase(' + nextPhase + ')" title="Continue scanning from Phase ' + nextPhase + '">&#9654; Continue from P' + nextPhase + '</button>'
+                        : '') +
+                '</div>' +
+            '</div>';
+
+        // Upload dropzone (hidden by default)
+        let uploadHtml = '';
+        if (canContinue) {
+            uploadHtml =
+                '<div class="upload-dropzone" id="phaseUploadZone">' +
+                    '<div class="upload-dropzone-icon">&#8682;</div>' +
+                    '<div class="upload-dropzone-text">Drop a .txt file here or click to browse</div>' +
+                    '<div class="upload-dropzone-hint">One host per line &mdash; will start Phase ' + nextPhase + ' (' + nextPhaseNames[phaseNum] + ')</div>' +
+                    '<input type="file" id="phaseFileInput" accept=".txt,.csv,.text">' +
+                '</div>';
+        }
+
+        // Count bar
+        let countHtml = '<div class="phase-item-count">' + count + ' items</div>';
+
+        // Item list
+        const listHtml = (count === 0 ? ['<em style="color:var(--text-muted)">No data yet</em>'] : pd.items)
+            .map(i => '<div class="phase-item">' + i + '</div>').join('');
+
+        modalStats.innerHTML =
+            '<div style="grid-column:1/-1;text-align:left;background:#0a0e17;border-radius:8px;overflow:hidden">' +
+            headerHtml + uploadHtml + countHtml +
+            '<div class="phase-item-list">' + listHtml + '</div></div>';
+
+        // Wire up upload zone interactions
+        if (canContinue) {
+            const zone = document.getElementById('phaseUploadZone');
+            const fileInput = document.getElementById('phaseFileInput');
+            if (zone && fileInput) {
+                zone.addEventListener('click', function() { fileInput.click(); });
+                zone.addEventListener('dragover', function(e) {
+                    e.preventDefault(); zone.classList.add('drag-over');
+                });
+                zone.addEventListener('dragleave', function() {
+                    zone.classList.remove('drag-over');
+                });
+                zone.addEventListener('drop', function(e) {
+                    e.preventDefault(); zone.classList.remove('drag-over');
+                    if (e.dataTransfer.files.length > 0) handlePhaseFile(e.dataTransfer.files[0], nextPhase);
+                });
+                fileInput.addEventListener('change', function() {
+                    if (fileInput.files.length > 0) handlePhaseFile(fileInput.files[0], nextPhase);
+                });
+            }
+        }
+
+        // Store current phase context for continueFromPhase
+        state._viewingPhase = phaseNum;
+
+        setModalTitle('PHASE ' + phaseNum + ' — ' + phaseNames[phaseNum].toUpperCase());
+        modalOverlay.classList.add('open');
+    }
+
+    // ── Toggle upload zone visibility ──
+    window.toggleUploadZone = function() {
+        const zone = document.getElementById('phaseUploadZone');
+        if (zone) zone.classList.toggle('visible');
+    };
+
+    // ── Handle uploaded file ──
+    function handlePhaseFile(file, targetPhase) {
+        const reader = new FileReader();
+        reader.onload = function(e) {
+            const lines = e.target.result.split('\n').map(l => l.trim()).filter(Boolean);
+            if (lines.length === 0) {
+                showToast('File is empty — no hosts found');
+                return;
+            }
+            state._uploadedHosts = lines;
+            state._uploadTargetPhase = targetPhase;
+
+            // Update the upload zone to show what was loaded
+            const zone = document.getElementById('phaseUploadZone');
+            if (zone) {
+                zone.innerHTML =
+                    '<div class="upload-dropzone-icon" style="color:var(--success)">&#10003;</div>' +
+                    '<div class="upload-dropzone-text" style="color:var(--success)">' + lines.length + ' hosts loaded from ' + escapeHtml(file.name) + '</div>' +
+                    '<div class="upload-dropzone-hint">Click "Continue from P' + targetPhase + '" to start scanning</div>';
+            }
+
+            showToast(lines.length + ' hosts loaded — ready to continue from Phase ' + targetPhase);
+        };
+        reader.readAsText(file);
+    }
+
+    // ── Download phase data as TXT ──
+    window.downloadPhaseTXT = function(phaseNum) {
+        const pd = getPhaseData(phaseNum);
+        if (pd.rawItems.length === 0) {
+            showToast('No data to download for ' + pd.title);
+            return;
+        }
+        const content = pd.rawItems.join('\n');
+        const blob = new Blob([content], { type: 'text/plain' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        const domain = state.domain || 'scan';
+        a.download = 'aem-recon-' + domain + '-phase' + phaseNum + '-' + pd.title.toLowerCase().replace(/\s+/g, '-') + '.txt';
+        a.click();
+        URL.revokeObjectURL(url);
+    };
+
+    // ── Show upload modal for a target phase ──
+    window.showPhaseUpload = function(targetPhase) {
+        const prevPhase = targetPhase - 1;
+        const pd = getPhaseData(prevPhase);
+
+        setModalTitle('UPLOAD FOR PHASE ' + targetPhase);
+        modalStats.innerHTML =
+            '<div style="grid-column:1/-1;text-align:left;background:#0a0e17;border-radius:8px;overflow:hidden">' +
+            '<div class="phase-modal-header">' +
+                '<span class="phase-modal-title">Upload hosts for Phase ' + targetPhase + ' (' + nextPhaseNames[prevPhase] + ')</span>' +
+                '<div class="phase-modal-actions">' +
+                    '<button class="phase-modal-btn btn-continue-scan" id="uploadContinueBtn" disabled onclick="continueFromPhase(' + targetPhase + ')">' +
+                        '&#9654; Start Phase ' + targetPhase +
+                    '</button>' +
+                '</div>' +
+            '</div>' +
+            '<div class="upload-dropzone visible" id="phaseUploadZone" style="margin:20px">' +
+                '<div class="upload-dropzone-icon">&#8682;</div>' +
+                '<div class="upload-dropzone-text">Drop a .txt file here or click to browse</div>' +
+                '<div class="upload-dropzone-hint">One host per line &mdash; these will be used as input for Phase ' + targetPhase + '</div>' +
+                '<input type="file" id="phaseFileInput" accept=".txt,.csv,.text">' +
+            '</div>' +
+            '</div>';
+
+        // Wire up
+        const zone = document.getElementById('phaseUploadZone');
+        const fileInput = document.getElementById('phaseFileInput');
+        if (zone && fileInput) {
+            zone.addEventListener('click', function() { fileInput.click(); });
+            zone.addEventListener('dragover', function(e) {
+                e.preventDefault(); zone.classList.add('drag-over');
+            });
+            zone.addEventListener('dragleave', function() {
+                zone.classList.remove('drag-over');
+            });
+            zone.addEventListener('drop', function(e) {
+                e.preventDefault(); zone.classList.remove('drag-over');
+                if (e.dataTransfer.files.length > 0) {
+                    handlePhaseFile(e.dataTransfer.files[0], targetPhase);
+                    const btn = document.getElementById('uploadContinueBtn');
+                    if (btn) btn.disabled = false;
+                }
+            });
+            fileInput.addEventListener('change', function() {
+                if (fileInput.files.length > 0) {
+                    handlePhaseFile(fileInput.files[0], targetPhase);
+                    const btn = document.getElementById('uploadContinueBtn');
+                    if (btn) btn.disabled = false;
+                }
+            });
+        }
+
+        modalOverlay.classList.add('open');
+    };
+
+    // ── Continue scan from a specific phase ──
+    window.continueFromPhase = async function(startPhase) {
+        if (state.scanning) {
+            showToast('A scan is already running');
+            return;
+        }
+
+        // Determine the host list to send
+        let hosts = [];
+        if (state._uploadedHosts && state._uploadedHosts.length > 0 && state._uploadTargetPhase === startPhase) {
+            hosts = state._uploadedHosts;
+        } else {
+            // Use data from previous phase
+            const prevPhase = startPhase - 1;
+            const pd = getPhaseData(prevPhase);
+            hosts = pd.rawItems;
+        }
+
+        if (hosts.length === 0) {
+            showToast('No hosts available — upload a file or run previous phases first');
+            return;
+        }
+
+        // Close modal
+        modalOverlay.classList.remove('open');
+
+        // Reset state but keep previous data
+        state.counts = { subdomains: 0, alive: 0, aem: 0, vulns: 0 };
+        state.aemHosts = [];
+        state.vulnerabilities = [];
+        state.allHosts = [];
+        state.feedEntries = 0;
+        feedContent.innerHTML = '';
+        $('#panelAem').innerHTML = '<div class="empty-state" id="aemEmpty"><div class="empty-state-icon">&loz;</div><div>No AEM hosts detected yet</div></div>';
+        $('#panelVulns').innerHTML = '<div class="empty-state" id="vulnEmpty"><div class="empty-state-icon">&Delta;</div><div>No vulnerabilities found yet</div></div>';
+        $('#hostsBody').innerHTML = '';
+        updateCounters();
+        [1, 2, 3, 4].forEach(n => {
+            if (n < startPhase) {
+                setPhase(['subdomains', 'alive', 'aem', 'vulns'][n - 1], 'complete', 100);
+            } else {
+                setPhase(['subdomains', 'alive', 'aem', 'vulns'][n - 1], 'waiting', 0);
+            }
+        });
+
+        setScanningState(true);
+        startTimer();
+        addFeedEntry('info', 'Continuing from Phase ' + startPhase + ' with ' + hosts.length + ' hosts');
+
+        try {
+            const body = {
+                start_phase: startPhase,
+                uploaded_hosts: hosts,
+            };
+            // Add domain if available
+            if (state.domain) body.domain = state.domain;
+
+            const resp = await fetch('/api/scan', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(body)
+            });
+            if (!resp.ok) {
+                const err = await resp.text();
+                throw new Error('API error: ' + resp.status + ' ' + err);
+            }
+            const result = await resp.json();
+            state.scanId = result.scan_id;
+            addFeedEntry('info', 'Scan ID: ' + state.scanId + ' (starting from Phase ' + startPhase + ')');
+            connectWebSocket(state.scanId);
+        } catch (e) {
+            addFeedEntry('vulnerability', 'Failed to start scan: ' + e.message);
+            setScanningState(false);
+            stopTimer();
+        }
+
+        // Clear upload state
+        state._uploadedHosts = null;
+        state._uploadTargetPhase = null;
+    };
+
+    // Attach click handlers to phase cards
+    document.querySelectorAll('.phase-card').forEach(card => {
+        card.style.cursor = 'pointer';
+        card.addEventListener('click', function() {
+            const num = parseInt(this.id.replace('phase-',''));
+            showPhaseDetail(num);
+        });
+    });
+
+    // ── Start Scan ──
+    async function startScan() {
+        const domain = domainInput.value.trim();
+        if (!domain || state.scanning) return;
+        state.domain = domain;
+
+        // Reset state
+        state.counts = { subdomains: 0, alive: 0, aem: 0, vulns: 0 };
+        state.aemHosts = [];
+        state.vulnerabilities = [];
+        state.allHosts = [];
+        state.subdomainsList = [];
+        state.aliveList = [];
+        state.feedEntries = 0;
+        feedContent.innerHTML = '';
+        $('#panelAem').innerHTML = '<div class="empty-state" id="aemEmpty"><div class="empty-state-icon">&loz;</div><div>No AEM hosts detected yet</div></div>';
+        $('#panelVulns').innerHTML = '<div class="empty-state" id="vulnEmpty"><div class="empty-state-icon">&Delta;</div><div>No vulnerabilities found yet</div></div>';
+        $('#hostsBody').innerHTML = '';
+        updateCounters();
+        [1, 2, 3, 4].forEach(n => {
+            setPhase(['subdomains', 'alive', 'aem', 'vulns'][n - 1], 'waiting', 0);
+        });
+
+        setScanningState(true);
+        startTimer();
+        addFeedEntry('info', 'Starting scan for: ' + domain);
+
+        try {
+            const resp = await fetch('/api/scan', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(
+                    domain.startsWith('http://') || domain.startsWith('https://')
+                        ? (domain.includes('\n') ? { urls: domain.split('\n').map(u => u.trim()).filter(Boolean) } : { url: domain })
+                        : { domain: domain }
+                )
+            });
+            if (!resp.ok) {
+                const err = await resp.text();
+                throw new Error('API error: ' + resp.status + ' ' + err);
+            }
+            const result = await resp.json();
+            state.scanId = result.scan_id;
+            addFeedEntry('info', 'Scan ID: ' + state.scanId);
+            connectWebSocket(state.scanId);
+        } catch (e) {
+            addFeedEntry('vulnerability', 'Failed to start scan: ' + e.message);
+            setScanningState(false);
+            stopTimer();
+        }
+    }
+
+    // ── WebSocket ──
+    function connectWebSocket(scanId) {
+        const proto = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+        const wsUrl = proto + '//' + window.location.host + '/ws/' + scanId;
+        addFeedEntry('info', 'Connecting WebSocket: ' + wsUrl);
+
+        const ws = new WebSocket(wsUrl);
+        state.ws = ws;
+
+        ws.onopen = function () {
+            addFeedEntry('info', 'WebSocket connected');
+        };
+
+        ws.onmessage = function (event) {
+            try {
+                const data = JSON.parse(event.data);
+                handleMessage(data);
+            } catch (e) {
+                addFeedEntry('info', event.data);
+            }
+        };
+
+        ws.onerror = function () {
+            addFeedEntry('vulnerability', 'WebSocket error');
+        };
+
+        ws.onclose = function (e) {
+            addFeedEntry('info', 'WebSocket closed (code: ' + e.code + ')');
+            if (state.scanning) {
+                setScanningState(false);
+                stopTimer();
+            }
+        };
+    }
+
+    // ── Export ──
+    function exportResults() {
+        const data = {
+            domain: state.domain,
+            timestamp: new Date().toISOString(),
+            counts: state.counts,
+            aem_hosts: state.aemHosts,
+            vulnerabilities: state.vulnerabilities,
+            all_hosts: state.allHosts
+        };
+        const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = 'aem-recon-' + state.domain + '-' + Date.now() + '.json';
+        a.click();
+        URL.revokeObjectURL(url);
+    }
+
+    // ── History ──
+    function saveScanHistory() {
+        const history = JSON.parse(localStorage.getItem('aem_recon_history') || '[]');
+        history.unshift({
+            domain: state.domain,
+            date: new Date().toISOString(),
+            counts: { ...state.counts }
+        });
+        while (history.length > 5) history.pop();
+        localStorage.setItem('aem_recon_history', JSON.stringify(history));
+    }
+
+    function renderHistory() {
+        const history = JSON.parse(localStorage.getItem('aem_recon_history') || '[]');
+        if (history.length === 0) {
+            historyDropdown.innerHTML = '<div class="history-empty">No scan history</div>';
+            return;
+        }
+        historyDropdown.innerHTML = history.map(h =>
+            '<div class="history-item" data-domain="' + escapeHtml(h.domain) + '">' +
+                '<div class="history-domain">' + escapeHtml(h.domain) + '</div>' +
+                '<div class="history-meta">' +
+                    new Date(h.date).toLocaleString() +
+                    ' — ' + h.counts.subdomains + ' subs, ' +
+                    h.counts.aem + ' AEM, ' +
+                    h.counts.vulns + ' vulns' +
+                '</div>' +
+            '</div>'
+        ).join('');
+    }
+
+    // ── Table sorting ──
+    let sortCol = null;
+    let sortAsc = true;
+    function sortTable(col) {
+        if (sortCol === col) { sortAsc = !sortAsc; } else { sortCol = col; sortAsc = true; }
+        state.allHosts.sort((a, b) => {
+            let va = a[col] || '';
+            let vb = b[col] || '';
+            if (col === 'aem') { va = a.is_aem ? 1 : 0; vb = b.is_aem ? 1 : 0; }
+            if (typeof va === 'string') va = va.toLowerCase();
+            if (typeof vb === 'string') vb = vb.toLowerCase();
+            if (va < vb) return sortAsc ? -1 : 1;
+            if (va > vb) return sortAsc ? 1 : -1;
+            return 0;
+        });
+        rebuildHostTable();
+    }
+
+    // ── Event Listeners ──
+
+    scanBtn.addEventListener('click', startScan);
+
+    domainInput.addEventListener('keydown', function (e) {
+        if (e.key === 'Enter') startScan();
+    });
+
+    pauseBtn.addEventListener('click', function () {
+        state.autoScroll = !state.autoScroll;
+        pauseBtn.textContent = state.autoScroll ? 'Auto-scroll ON' : 'Auto-scroll OFF';
+        pauseBtn.classList.toggle('paused', !state.autoScroll);
+    });
+
+    exportBtn.addEventListener('click', exportResults);
+
+    historyBtn.addEventListener('click', function (e) {
+        e.stopPropagation();
+        renderHistory();
+        historyDropdown.classList.toggle('open');
+    });
+
+    document.addEventListener('click', function () {
+        historyDropdown.classList.remove('open');
+    });
+
+    historyDropdown.addEventListener('click', function (e) {
+        e.stopPropagation();
+        const item = e.target.closest('.history-item');
+        if (item) {
+            domainInput.value = item.dataset.domain;
+            historyDropdown.classList.remove('open');
+        }
+    });
+
+    modalClose.addEventListener('click', function () {
+        modalOverlay.classList.remove('open');
+    });
+
+    modalOverlay.addEventListener('click', function (e) {
+        if (e.target === modalOverlay) modalOverlay.classList.remove('open');
+    });
+
+    // Tab switching
+    document.querySelectorAll('.tab-btn').forEach(function (btn) {
+        btn.addEventListener('click', function () {
+            document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+            document.querySelectorAll('.tab-content').forEach(p => p.classList.remove('active'));
+            btn.classList.add('active');
+            const tabName = btn.dataset.tab;
+            const panelMap = { aem: 'panelAem', vulns: 'panelVulns', hosts: 'panelHosts' };
+            $('#' + panelMap[tabName]).classList.add('active');
+        });
+    });
+
+    // Copy URL buttons (delegated)
+    document.addEventListener('click', function (e) {
+        if (e.target.classList.contains('btn-copy')) {
+            const url = e.target.dataset.url;
+            navigator.clipboard.writeText(url).then(function () {
+                e.target.textContent = 'COPIED';
+                e.target.classList.add('copied');
+                setTimeout(function () {
+                    e.target.textContent = 'COPY';
+                    e.target.classList.remove('copied');
+                }, 1500);
+            });
+        }
+        // AEM detail toggle
+        if (e.target.classList.contains('aem-detail-toggle')) {
+            const target = document.getElementById(e.target.dataset.target);
+            if (target) {
+                target.classList.toggle('open');
+                e.target.textContent = target.classList.contains('open') ? 'Hide details' : 'Show details';
+            }
+        }
+    });
+
+    // Table sorting
+    document.querySelectorAll('.hosts-table th').forEach(function (th) {
+        th.addEventListener('click', function () {
+            sortTable(th.dataset.sort);
+        });
+    });
+
+    // Keyboard shortcut
+    document.addEventListener('keydown', function (e) {
+        if (e.key === 'Escape') {
+            modalOverlay.classList.remove('open');
+            historyDropdown.classList.remove('open');
+        }
+    });
+
+    // ═══════════════════════════════════════════════════════════════
+    // DASHBOARD
+    // ═══════════════════════════════════════════════════════════════
+
+    const app = $('#app');
+    const backBtn = $('#backToDash');
+    let dashboardTimer = null;
+
+    function formatTime(ts) {
+        if (!ts) return '—';
+        const d = new Date(ts * 1000);
+        const now = new Date();
+        const diff = (now - d) / 1000;
+        const pad = n => String(n).padStart(2, '0');
+        const time = pad(d.getHours()) + ':' + pad(d.getMinutes()) + ':' + pad(d.getSeconds());
+        if (diff < 86400) return 'Today ' + time;
+        if (diff < 172800) return 'Yesterday ' + time;
+        return pad(d.getDate()) + '/' + pad(d.getMonth()+1) + ' ' + time;
+    }
+
+    function formatDuration(sec) {
+        if (!sec || sec <= 0) return '—';
+        if (sec < 60) return Math.round(sec) + 's';
+        const m = Math.floor(sec / 60);
+        const s = Math.round(sec % 60);
+        if (m < 60) return m + 'm ' + s + 's';
+        const h = Math.floor(m / 60);
+        return h + 'h ' + (m % 60) + 'm';
+    }
+
+    function phaseLabel(phase) {
+        const map = {
+            'subdomain_enumeration': 'Subdomains',
+            'alive_check': 'Alive Check',
+            'aem_detection': 'AEM Detection',
+            'bypass_scan': 'Bypass Scan',
+            'complete': 'Complete',
+            'error': 'Error',
+        };
+        return map[phase] || phase;
+    }
+
+    // Show Dashboard
+    window.showDashboard = function() {
+        app.classList.remove('scanner-mode');
+        app.classList.add('dashboard-mode');
+        backBtn.style.display = 'none';
+        loadDashboard();
+        // Auto-refresh every 5s
+        if (dashboardTimer) clearInterval(dashboardTimer);
+        dashboardTimer = setInterval(loadDashboard, 5000);
+    };
+
+    // Show Scanner (new scan)
+    window.showScanner = function() {
+        app.classList.remove('dashboard-mode');
+        app.classList.add('scanner-mode');
+        backBtn.style.display = 'flex';
+        if (dashboardTimer) { clearInterval(dashboardTimer); dashboardTimer = null; }
+        domainInput.focus();
+    };
+
+    // Load dashboard data
+    window.loadDashboard = async function() {
+        try {
+            const resp = await fetch('/api/scans');
+            if (!resp.ok) return;
+            const data = await resp.json();
+            renderDashboard(data);
+        } catch (e) {
+            console.error('Dashboard fetch error:', e);
+        }
+    };
+
+    function renderDashboard(scans) {
+        // Stats
+        const total = scans.length;
+        const running = scans.filter(s => s.status === 'running').length;
+        const complete = scans.filter(s => s.status === 'complete').length;
+        const totalAem = scans.reduce((a, s) => a + (s.aem_total || 0), 0);
+        const totalVulns = scans.reduce((a, s) => a + (s.vulnerabilities || 0), 0);
+
+        $('#dsTotalScans').textContent = total;
+        $('#dsRunning').textContent = running;
+        $('#dsComplete').textContent = complete;
+        $('#dsTotalAem').textContent = totalAem;
+        $('#dsTotalVulns').textContent = totalVulns;
+
+        // Table
+        const body = $('#dashBody');
+        if (scans.length === 0) {
+            body.innerHTML =
+                '<tr><td colspan="10">' +
+                '<div class="dash-empty">' +
+                    '<div class="dash-empty-icon">&#9678;</div>' +
+                    '<div>No scans yet</div>' +
+                    '<div style="font-size:12px;color:var(--text-muted)">Click "+ New Scan" to start your first reconnaissance</div>' +
+                '</div></td></tr>';
+            return;
+        }
+
+        body.innerHTML = scans.map(function(s) {
+            const statusClass = s.status === 'running' ? 'running' :
+                                s.status === 'complete' ? 'complete' :
+                                s.status === 'cancelled' ? 'cancelled' :
+                                s.status === 'error' ? 'error' : 'pending';
+            const statusText = s.status === 'running' ? 'Scanning' :
+                               s.status === 'complete' ? 'Complete' :
+                               s.status === 'cancelled' ? 'Cancelled' :
+                               s.status === 'error' ? 'Error' :
+                               s.status.charAt(0).toUpperCase() + s.status.slice(1);
+
+            const aemClass = (s.aem_total > 0) ? 'cell-num has-value aem-value' : 'cell-num';
+            const vulnClass = (s.vulnerabilities > 0) ? 'cell-num has-value vuln-value' : 'cell-num';
+            const subsClass = (s.subdomains > 0) ? 'cell-num has-value' : 'cell-num';
+            const aliveClass = (s.alive > 0) ? 'cell-num has-value' : 'cell-num';
+
+            return '<tr onclick="openScan(\'' + escapeHtml(s.scan_id) + '\')">' +
+                '<td><span class="status-badge ' + statusClass + '">' + statusText + '</span></td>' +
+                '<td class="cell-domain">' + escapeHtml(s.domain || '—') + '</td>' +
+                '<td class="cell-id">' + escapeHtml(s.scan_id) + '</td>' +
+                '<td class="cell-phase">' + phaseLabel(s.phase) + '</td>' +
+                '<td class="' + subsClass + '">' + (s.subdomains || 0) + '</td>' +
+                '<td class="' + aliveClass + '">' + (s.alive || 0) + '</td>' +
+                '<td class="' + aemClass + '">' + (s.aem_total || 0) + '</td>' +
+                '<td class="' + vulnClass + '">' + (s.vulnerabilities || 0) + '</td>' +
+                '<td class="cell-time">' + formatTime(s.started_at) + '</td>' +
+                '<td class="cell-elapsed">' + formatDuration(s.elapsed) + '</td>' +
+            '</tr>';
+        }).join('');
+
+        // Update refresh timestamp
+        const now = new Date();
+        const pad = n => String(n).padStart(2, '0');
+        $('#dashLastRefresh').textContent = 'Updated ' + pad(now.getHours()) + ':' + pad(now.getMinutes()) + ':' + pad(now.getSeconds());
+    }
+
+    // Open a specific scan
+    window.openScan = async function(scanId) {
+        // Switch to scanner mode
+        showScanner();
+
+        // Reset UI state
+        state.counts = { subdomains: 0, alive: 0, aem: 0, vulns: 0 };
+        state.aemHosts = [];
+        state.vulnerabilities = [];
+        state.allHosts = [];
+        state.subdomainsList = [];
+        state.aliveList = [];
+        state.feedEntries = 0;
+        feedContent.innerHTML = '';
+        $('#panelAem').innerHTML = '<div class="empty-state" id="aemEmpty"><div class="empty-state-icon">&loz;</div><div>Loading...</div></div>';
+        $('#panelVulns').innerHTML = '<div class="empty-state" id="vulnEmpty"><div class="empty-state-icon">&Delta;</div><div>Loading...</div></div>';
+        $('#hostsBody').innerHTML = '';
+        updateCounters();
+        [1, 2, 3, 4].forEach(n => {
+            setPhase(['subdomains', 'alive', 'aem', 'vulns'][n - 1], 'waiting', 0);
+        });
+
+        try {
+            // Fetch full results
+            const resp = await fetch('/api/scan/' + scanId + '/results');
+            if (!resp.ok) {
+                addFeedEntry('vulnerability', 'Failed to load scan: ' + resp.status);
+                return;
+            }
+            const data = await resp.json();
+            state.scanId = scanId;
+            state.domain = data.domain || '';
+            domainInput.value = state.domain;
+
+            // Populate subdomains
+            if (data.subdomains && data.subdomains.length > 0) {
+                state.subdomainsList = data.subdomains;
+                state.counts.subdomains = data.subdomains.length;
+                setPhase('subdomains', 'complete', 100);
+                addFeedEntry('info', 'Subdomains: ' + data.subdomains.length + ' found');
+            }
+
+            // Populate alive hosts
+            if (data.alive_hosts && data.alive_hosts.length > 0) {
+                state.aliveList = data.alive_hosts;
+                state.counts.alive = data.alive_hosts.length;
+                setPhase('alive', 'complete', 100);
+                data.alive_hosts.forEach(function(h) {
+                    state.allHosts.push({ host: h, status_code: 200, is_aem: false });
+                });
+                addFeedEntry('info', 'Alive hosts: ' + data.alive_hosts.length);
+            }
+
+            // Populate AEM hosts
+            if (data.aem_hosts && Object.keys(data.aem_hosts).length > 0) {
+                setPhase('aem', 'complete', 100);
+                for (const [host, info] of Object.entries(data.aem_hosts)) {
+                    const hostData = {
+                        host: host,
+                        confidence: info.confidence,
+                        score: info.score,
+                        reasons: info.reasons || [],
+                    };
+                    addAemHost(hostData);
+                    state.counts.aem++;
+                    // Update host table
+                    const existing = state.allHosts.find(h => h.host === host);
+                    if (existing) existing.is_aem = true;
+                }
+                addFeedEntry('info', 'AEM hosts: ' + state.counts.aem + ' detected');
+            }
+
+            // Populate vulnerabilities
+            if (data.vulnerabilities && data.vulnerabilities.length > 0) {
+                setPhase('vulns', 'complete', 100);
+                data.vulnerabilities.forEach(function(v) {
+                    addVulnerability(v);
+                    state.counts.vulns++;
+                });
+                addFeedEntry('info', 'Vulnerabilities: ' + data.vulnerabilities.length);
+            }
+
+            updateCounters();
+            rebuildHostTable();
+
+            // Handle running scans — connect to websocket
+            if (data.status === 'running') {
+                setScanningState(true);
+                startTimer();
+                connectWebSocket(scanId);
+                addFeedEntry('info', 'Scan is still running — connected to live feed');
+            } else {
+                addFeedEntry('info', 'Scan ' + scanId + ' — Status: ' + data.status);
+                exportBtn.disabled = (state.aemHosts.length === 0 && state.vulnerabilities.length === 0);
+
+                // Mark appropriate phases
+                const phaseOrder = ['subdomain_enumeration', 'alive_check', 'aem_detection', 'bypass_scan', 'complete'];
+                const phaseNames2 = ['subdomains', 'alive', 'aem', 'vulns'];
+                const currentIdx = phaseOrder.indexOf(data.phase);
+                phaseNames2.forEach(function(name, i) {
+                    if (data.status === 'complete' || i < currentIdx) {
+                        setPhase(name, 'complete', 100);
+                    }
+                });
+            }
+
+        } catch (e) {
+            addFeedEntry('vulnerability', 'Error loading scan: ' + e.message);
+        }
+    };
+
+    // ── Boot: show dashboard by default ──
+    showDashboard();
+
+})();
+</script>
+</body>
+</html>
