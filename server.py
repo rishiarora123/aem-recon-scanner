@@ -1983,22 +1983,22 @@ def phase4_bypass(scan: ScanState) -> None:
     host_sems = {
         b: threading.Semaphore(scan.per_host) for b in aem_targets
     }
-    work: list[tuple[str, str, str, str]] = []
+    # work items: (base_host, url_path, bypass_tag, endpoint_label, endpoint_raw_path)
+    work: list[tuple[str, str, str, str, str]] = []
     host_count: dict[str, int] = defaultdict(int)
 
     for base in aem_targets:
         for ep_path, ep_label in AEM_ENDPOINTS:
-            # 8 standard bypass techniques
             bypasses = build_bypass_paths(ep_path)
             for tag, url_path in bypasses:
-                work.append((base, url_path, tag, ep_label))
+                work.append((base, url_path, tag, ep_label, ep_path))
                 host_count[base] += 1
 
-            # Technique #9: .ext.json selector bypass
+            # ext-json selector bypass
             ext = build_ext_json_path(ep_path)
             if ext:
                 tag, url_path = ext
-                work.append((base, url_path, tag, ep_label))
+                work.append((base, url_path, tag, ep_label, ep_path))
                 host_count[base] += 1
 
     total_reqs = len(work)
@@ -2017,7 +2017,33 @@ def phase4_bypass(scan: ScanState) -> None:
     host_hits: dict[str, list] = defaultdict(list)
     rem_lock = threading.Lock()
 
-    def _worker(base: str, url_path: str, tag: str, ep_label: str) -> None:
+    # Deduplication: track (full_url) already reported to prevent identical findings
+    seen_vuln_urls: set[str] = set()
+    seen_lock = threading.Lock()
+
+    # Direct-path baseline cache: tracks which endpoints are openly accessible
+    # (not blocked by dispatcher) so we don't report them as bypass findings
+    direct_open: dict[str, bool] = {}
+    direct_lock = threading.Lock()
+
+    def _is_directly_open(base: str, ep_path: str) -> bool:
+        """Return True if the endpoint is accessible directly (no bypass needed)."""
+        key = base + "/" + ep_path.split("?")[0]
+        with direct_lock:
+            if key in direct_open:
+                return direct_open[key]
+        direct_url = base + "/" + ep_path
+        try:
+            r = requests.get(direct_url, headers=HEADERS, timeout=scan.timeout,
+                             verify=False, allow_redirects=False)
+            is_open = r.status_code == 200
+        except Exception:
+            is_open = False
+        with direct_lock:
+            direct_open[key] = is_open
+        return is_open
+
+    def _worker(base: str, url_path: str, tag: str, ep_label: str, ep_path: str) -> None:
         result = _do_bypass_request(
             base,
             url_path,
@@ -2033,6 +2059,15 @@ def phase4_bypass(scan: ScanState) -> None:
             progress_count = done[0]
 
         if result:
+            full_url = result["full_url"]
+            # Skip if this exact URL was already reported (duplicate)
+            with seen_lock:
+                if full_url in seen_vuln_urls:
+                    return
+                seen_vuln_urls.add(full_url)
+            # Skip if the endpoint is directly accessible (not a real bypass)
+            if _is_directly_open(base, ep_path):
+                return
             scan.vulnerabilities.append(result)
             host_hits[base].append(result)
             _send_ws(scan, {
@@ -2063,8 +2098,8 @@ def phase4_bypass(scan: ScanState) -> None:
     # --- Flat pool execution ---
     with ThreadPoolExecutor(max_workers=scan.threads) as pool:
         futs = [
-            pool.submit(_worker, base, url_path, tag, ep_label)
-            for base, url_path, tag, ep_label in work
+            pool.submit(_worker, base, url_path, tag, ep_label, ep_path)
+            for base, url_path, tag, ep_label, ep_path in work
         ]
         for f in as_completed(futs):
             pass

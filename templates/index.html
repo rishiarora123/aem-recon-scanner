@@ -1347,7 +1347,7 @@ html, body {
             </div>
             <div class="dash-header-right">
                 <button class="btn-refresh-dash" id="refreshDash" onclick="loadDashboard()">&#8635; Refresh</button>
-                <button class="btn-new-scan" id="newScanBtn" onclick="showScanner()">&#43; New Scan</button>
+                <button class="btn-new-scan" id="newScanBtn" onclick="startNewScan()">&#43; New Scan</button>
             </div>
         </div>
         <div class="dash-stats" id="dashStats">
@@ -2550,6 +2550,47 @@ html, body {
         backBtn.style.display = 'flex';
         if (dashboardTimer) { clearInterval(dashboardTimer); dashboardTimer = null; }
         domainInput.focus();
+    };
+
+    // Start a completely fresh scan — resets all state, closes any existing WS
+    window.startNewScan = function() {
+        // Close existing WS connection (don't cancel scan — it keeps running in background)
+        if (state.ws) {
+            state.ws.onclose = null; // prevent onclose handler from running
+            state.ws.close();
+            state.ws = null;
+        }
+        // Reset all scan state
+        state.scanId = null;
+        state.scanning = false;
+        state.domain = '';
+        state.counts = { subdomains: 0, alive: 0, aem: 0, vulns: 0 };
+        state.aemHosts = [];
+        state.vulnerabilities = [];
+        state.allHosts = [];
+        state.subdomainsList = [];
+        state.aliveList = [];
+        state.feedEntries = 0;
+        state._uploadedHosts = null;
+        // Reset UI
+        domainInput.value = '';
+        feedContent.innerHTML = '';
+        const feedEmp = document.getElementById('feedEmpty');
+        if (!feedEmp) {
+            const el = document.createElement('div');
+            el.id = 'feedEmpty';
+            el.className = 'feed-empty';
+            el.innerHTML = '<div class="feed-empty-icon">&#9775;</div><div>Waiting for scan to start...</div>';
+            feedContent.appendChild(el);
+        }
+        $('#panelAem').innerHTML = '<div class="empty-state" id="aemEmpty"><div class="empty-state-icon">&loz;</div><div>No AEM hosts detected yet</div></div>';
+        $('#panelVulns').innerHTML = '<div class="empty-state" id="vulnEmpty"><div class="empty-state-icon">&Delta;</div><div>No vulnerabilities found yet</div></div>';
+        $('#hostsBody').innerHTML = '';
+        updateCounters();
+        [1,2,3,4].forEach(n => setPhase(['subdomains','alive','aem','vulns'][n-1], 'waiting', 0));
+        setScanningState(false);
+        stopTimer();
+        showScanner();
     };
 
     // Load dashboard data
