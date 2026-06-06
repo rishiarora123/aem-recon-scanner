@@ -370,6 +370,10 @@ class ScanState:
     _msg_queue: asyncio.Queue | None = None
     _loop: asyncio.AbstractEventLoop | None = None
 
+    # Log history for late WebSocket connections
+    _log_history: list[dict[str, Any]] = field(default_factory=list)
+    _log_history_lock: threading.Lock = field(default_factory=threading.Lock)
+
 
 # Global scan registry
 scans: dict[str, ScanState] = {}
@@ -380,7 +384,14 @@ scans_lock = threading.Lock()
 # WEBSOCKET MESSAGING
 # ============================================================================
 def _send_ws(scan: ScanState, msg: dict[str, Any]) -> None:
-    """Queue a message for async WebSocket delivery."""
+    """Queue a message for async WebSocket delivery and save to history."""
+    # Save log messages to history for late WebSocket connections
+    if msg.get("type") == "log":
+        with scan._log_history_lock:
+            scan._log_history.append(msg)
+            # Cap at 2000 messages to prevent memory bloat
+            if len(scan._log_history) > 2000:
+                scan._log_history = scan._log_history[-1500:]
     if scan._loop and scan._msg_queue:
         try:
             scan._loop.call_soon_threadsafe(scan._msg_queue.put_nowait, msg)
@@ -2444,6 +2455,16 @@ async def websocket_endpoint(websocket: WebSocket, scan_id: str) -> None:
         "status": scan.status,
         "phase": scan.phase.value,
     })
+
+    # Replay log history so late connections see all past messages
+    with scan._log_history_lock:
+        history = list(scan._log_history)
+    for hist_msg in history:
+        try:
+            replay = {**hist_msg, "replay": True}
+            await websocket.send_json(replay)
+        except Exception:
+            break
 
     try:
         while True:
