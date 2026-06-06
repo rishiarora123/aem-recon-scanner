@@ -293,6 +293,24 @@ html, body {
     color: var(--text-dim);
     text-transform: capitalize;
 }
+.cell-actions { text-align: center; width: 50px; }
+.btn-delete-scan {
+    padding: 4px 10px;
+    background: transparent;
+    border: 1px solid rgba(233,69,96,0.3);
+    color: var(--critical);
+    border-radius: 4px;
+    font-size: 11px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all var(--transition);
+    opacity: 0;
+}
+.dash-table tbody tr:hover .btn-delete-scan { opacity: 1; }
+.btn-delete-scan:hover {
+    background: rgba(233,69,96,0.12);
+    border-color: var(--critical);
+}
 .dash-empty {
     display: flex;
     flex-direction: column;
@@ -1029,6 +1047,18 @@ html, body {
     word-break: break-all;
     position: relative;
 }
+.vuln-url {
+    font-family: var(--mono);
+    font-size: 10px;
+    color: var(--accent);
+    background: rgba(0,188,212,0.06);
+    padding: 4px 10px;
+    border-radius: 4px;
+    margin: 2px 0 4px 0;
+    word-break: break-all;
+    border-left: 2px solid var(--accent);
+    user-select: all;
+}
 .vuln-meta {
     display: flex;
     flex-wrap: wrap;
@@ -1356,6 +1386,7 @@ html, body {
                         <th style="text-align:center">Vulns</th>
                         <th>Started</th>
                         <th>Duration</th>
+                        <th style="width:50px"></th>
                     </tr>
                 </thead>
                 <tbody id="dashBody"></tbody>
@@ -1703,16 +1734,21 @@ html, body {
         const panel = $('#panelVulns');
         const card = document.createElement('div');
         card.className = 'vuln-card';
-        const fullUrl = data.url || (data.host + (data.endpoint || ''));
+        // Use full_url (the actual bypass URL), fallback to constructing from host + endpoint_path
+        const copyUrl = data.full_url || data.url || (data.host + (data.endpoint_path || data.endpoint || ''));
+        const displayEndpoint = data.endpoint || '';
+        const displayPath = data.full_url || data.endpoint_path || '';
         card.innerHTML =
             '<div class="vuln-host">' + escapeHtml(data.host || '') + '</div>' +
-            '<div class="vuln-endpoint">' + escapeHtml(data.endpoint || data.url || '') + '</div>' +
+            '<div class="vuln-endpoint">' + escapeHtml(displayEndpoint) + '</div>' +
+            (displayPath ? '<div class="vuln-url">' + escapeHtml(displayPath) + '</div>' : '') +
             '<div class="vuln-meta">' +
+                (data.bypass ? '<span class="vuln-technique">' + escapeHtml(data.bypass) + '</span>' : '') +
                 (data.technique ? '<span class="vuln-technique">' + escapeHtml(data.technique) + '</span>' : '') +
                 (data.size ? '<span class="vuln-size">' + data.size + ' bytes</span>' : '') +
                 (data.content_type ? '<span class="vuln-type">' + escapeHtml(data.content_type) + '</span>' : '') +
                 (data.genuine ? '<span class="badge badge-genuine">GENUINE</span>' : '') +
-                '<button class="btn-copy" data-url="' + escapeHtml(fullUrl) + '" title="Copy URL">COPY</button>' +
+                '<button class="btn-copy" data-url="' + escapeHtml(copyUrl) + '" title="Copy bypass URL">COPY</button>' +
             '</div>';
         panel.appendChild(card);
         showToast('Vulnerability found: ' + (data.host || ''));
@@ -2541,7 +2577,7 @@ html, body {
         const body = $('#dashBody');
         if (scans.length === 0) {
             body.innerHTML =
-                '<tr><td colspan="10">' +
+                '<tr><td colspan="11">' +
                 '<div class="dash-empty">' +
                     '<div class="dash-empty-icon">&#9678;</div>' +
                     '<div>No scans yet</div>' +
@@ -2577,6 +2613,7 @@ html, body {
                 '<td class="' + vulnClass + '">' + (s.vulnerabilities || 0) + '</td>' +
                 '<td class="cell-time">' + formatTime(s.started_at) + '</td>' +
                 '<td class="cell-elapsed">' + formatDuration(s.elapsed) + '</td>' +
+                '<td class="cell-actions"><button class="btn-delete-scan" onclick="event.stopPropagation(); deleteScan(\'' + escapeHtml(s.scan_id) + '\', this)" title="Delete scan">&#10005;</button></td>' +
             '</tr>';
         }).join('');
 
@@ -2585,6 +2622,40 @@ html, body {
         const pad = n => String(n).padStart(2, '0');
         $('#dashLastRefresh').textContent = 'Updated ' + pad(now.getHours()) + ':' + pad(now.getMinutes()) + ':' + pad(now.getSeconds());
     }
+
+    // Delete a scan
+    window.deleteScan = async function(scanId, btn) {
+        if (!confirm('Delete this scan? This cannot be undone.')) return;
+        btn.textContent = '...';
+        btn.disabled = true;
+        try {
+            const resp = await fetch('/api/scan/' + scanId, { method: 'DELETE' });
+            if (resp.ok) {
+                // Remove row with animation
+                const row = btn.closest('tr');
+                if (row) {
+                    row.style.transition = 'opacity 0.3s, transform 0.3s';
+                    row.style.opacity = '0';
+                    row.style.transform = 'translateX(30px)';
+                    setTimeout(function() {
+                        row.remove();
+                        // Refresh dashboard stats
+                        loadDashboard();
+                    }, 300);
+                } else {
+                    loadDashboard();
+                }
+            } else {
+                alert('Failed to delete scan');
+                btn.textContent = '✕';
+                btn.disabled = false;
+            }
+        } catch (e) {
+            alert('Error deleting scan: ' + e.message);
+            btn.textContent = '✕';
+            btn.disabled = false;
+        }
+    };
 
     // Open a specific scan
     window.openScan = async function(scanId) {

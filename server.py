@@ -2398,6 +2398,27 @@ async def cancel_scan(scan_id: str) -> JSONResponse:
     return JSONResponse({"scan_id": scan_id, "status": "cancelling"})
 
 
+@app.delete("/api/scan/{scan_id}")
+async def delete_scan(scan_id: str) -> JSONResponse:
+    """Delete a scan from the registry."""
+    with scans_lock:
+        scan = scans.get(scan_id)
+        if not scan:
+            raise HTTPException(status_code=404, detail="Scan not found")
+        # Cancel if still running
+        scan.cancelled = True
+        # Close WebSocket connections
+        with scan.ws_lock:
+            for ws in list(scan.ws_connections):
+                try:
+                    asyncio.ensure_future(ws.close(code=4001, reason="Scan deleted"))
+                except Exception:
+                    pass
+            scan.ws_connections.clear()
+        del scans[scan_id]
+    return JSONResponse({"scan_id": scan_id, "deleted": True})
+
+
 @app.get("/api/scans")
 async def list_scans() -> JSONResponse:
     """List all scans with rich metadata for the dashboard."""
