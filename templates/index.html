@@ -1958,10 +1958,15 @@ html, body {
         };
         if (phaseNum === 4) return {
             title: 'Vulnerabilities',
-            items: state.vulnerabilities.map(v =>
-                (v.host||'') + (v.url||v.endpoint||'') + ' [' + (v.technique||'') + '] ' + (v.status_code||'')
-            ),
-            rawItems: state.vulnerabilities.map(v => (v.host||'') + (v.url||v.endpoint||''))
+            items: state.vulnerabilities.map(v => {
+                const url = v.full_url || v.url || (v.host + (v.endpoint_path || ''));
+                const tag = v.bypass || v.technique || '';
+                const ep  = v.endpoint || '';
+                return url + (tag ? ' [' + tag + ']' : '') + (ep ? ' — ' + ep : '');
+            }),
+            rawItems: state.vulnerabilities.map(v =>
+                v.full_url || v.url || (v.host + (v.endpoint_path || v.endpoint || ''))
+            )
         };
         return { title: '', items: [], rawItems: [] };
     }
