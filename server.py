@@ -65,6 +65,48 @@ DEFAULT_UA = (
 HEADERS = {"User-Agent": DEFAULT_UA, "Accept": "*/*"}
 
 # ============================================================================
+# C99 CONFIG — read from environment
+# ============================================================================
+# Set C99_API_KEY to use the official C99 API (no scraping, no blocks)
+# Get your key at https://api.c99.nl for $5
+C99_API_KEY: str = os.environ.get("C99_API_KEY", "").strip()
+
+# Optional: comma-separated list of proxies for C99 scraping fallback
+# Format: http://ip:port,socks5://user:pass@ip:port,http://ip:port
+# If set, each C99 request uses the next proxy in rotation
+_raw_proxy_list = os.environ.get("C99_PROXIES", os.environ.get("PROXY_LIST", "")).strip()
+C99_PROXY_LIST: list[str] = [p.strip() for p in _raw_proxy_list.split(",") if p.strip()] if _raw_proxy_list else []
+_c99_proxy_index = 0
+_c99_proxy_lock = threading.Lock()
+
+def _next_c99_proxy() -> dict | None:
+    """Return next proxy dict from rotation, or None if no proxies configured."""
+    global _c99_proxy_index
+    if not C99_PROXY_LIST:
+        return None
+    with _c99_proxy_lock:
+        proxy = C99_PROXY_LIST[_c99_proxy_index % len(C99_PROXY_LIST)]
+        _c99_proxy_index += 1
+    return {"http": proxy, "https": proxy}
+
+# User-Agent pool for C99 scraping fallback (rotate to avoid fingerprinting)
+_C99_UA_POOL = [
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36",
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:124.0) Gecko/20100101 Firefox/124.0",
+    "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 14_4_1) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.4.1 Safari/605.1.15",
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36 Edg/121.0.0.0",
+]
+_c99_ua_index = 0
+
+def _next_c99_ua() -> str:
+    global _c99_ua_index
+    ua = _C99_UA_POOL[_c99_ua_index % len(_C99_UA_POOL)]
+    _c99_ua_index += 1
+    return ua
+
+# ============================================================================
 # AEM ENDPOINTS (60 targets)
 # ============================================================================
 AEM_ENDPOINTS: list[tuple[str, str]] = [
@@ -693,85 +735,168 @@ def phase1_subdomains(scan: ScanState) -> None:
     # For microsoft.com it returns 100,000 subdomains — 20x more than
     # all other sources combined. Runs FIRST so subsequent sources
     # only add what C99 missed.
-    # Streams the HTML response and extracts subdomains via regex
-    # to avoid loading 79MB+ into memory.
+    #
+    # Mode A (preferred): Official C99 JSON API — set C99_API_KEY env var.
+    #   export C99_API_KEY=your_key_here   ($5 at https://api.c99.nl)
+    #   No scraping, no abuse detection, no IP blocks.
+    #
+    # Mode B (fallback): HTML scraping with proxy + UA rotation.
+    #   Set C99_PROXIES=http://ip:port,socks5://ip:port,...  to rotate IPs.
+    #   If no proxies set, tries plain scraping (may hit abuse block).
     # ══════════════════════════════════════════════════════════════════
     if not scan.cancelled:
         import re as _re_c99
         from datetime import date as _date, timedelta as _td
-        try:
-            _send_ws(scan, {"type": "log", "level": "info",
-                            "message": f"Fetching C99.nl subdomain database (searching last 30 days)..."})
-            log.info("SOURCE 0: Fetching C99.nl for %s (trying last 30 days)", d)
-            c99_before = count
-            c99_found = False
 
-            # Try today first, then go back up to 30 days to find the latest scan
-            # with ACTUAL subdomain data (some dates return 200 but empty results)
-            pattern = _re_c99.compile(
-                r"'([a-zA-Z0-9][a-zA-Z0-9._-]*\." + _re_c99.escape(d) + r")'"
-            )
+        c99_before = count
+        c99_success = False
 
-            for days_back in range(30):
-                if scan.cancelled:
-                    break
-                check_date = (_date.today() - _td(days=days_back)).strftime("%Y-%m-%d")
-                c99_url = f"https://subdomainfinder.c99.nl/scans/{check_date}/{d}"
-
-                try:
-                    c99_resp = requests.get(c99_url, timeout=30, stream=True,
-                                             headers={"User-Agent": "Mozilla/5.0"})
-                except requests.RequestException:
-                    continue
-
-                if c99_resp.status_code != 200:
-                    c99_resp.close()
-                    continue
-
-                # Stream full page and extract subdomains
+        # ── Mode A: Official JSON API ──────────────────────────────────
+        if C99_API_KEY and not scan.cancelled:
+            try:
                 _send_ws(scan, {"type": "log", "level": "info",
-                                "message": f"C99.nl: trying {check_date}..."})
+                                "message": f"C99.nl: using API key (official API)..."})
+                log.info("SOURCE 0: C99.nl API mode for %s", d)
+                api_url = f"https://api.c99.nl/subdomainfinder?key={C99_API_KEY}&domain={d}&json"
+                proxy = _next_c99_proxy()
+                api_resp = requests.get(
+                    api_url, timeout=60,
+                    headers={"User-Agent": _next_c99_ua(), "Accept": "application/json"},
+                    proxies=proxy,
+                )
+                if api_resp.status_code == 200:
+                    try:
+                        api_data = api_resp.json()
+                        # API returns {"success": true, "subdomains": [...], ...}
+                        subdomain_list = api_data.get("subdomains", [])
+                        if isinstance(subdomain_list, list):
+                            for entry in subdomain_list:
+                                # each entry may be a string or {"subdomain": "...", "ip": "..."}
+                                if isinstance(entry, str):
+                                    _add_sub(entry, "c99-api")
+                                elif isinstance(entry, dict):
+                                    sub = entry.get("subdomain", "")
+                                    if sub:
+                                        _add_sub(sub, "c99-api")
+                            c99_added = count - c99_before
+                            _send_ws(scan, {"type": "log", "level": "info",
+                                            "message": f"C99.nl API: +{c99_added} subdomains (total: {count})"})
+                            log.info("SOURCE 0: C99.nl API done, +%d subdomains", c99_added)
+                            c99_success = True
+                        else:
+                            # Unexpected format — log raw snippet
+                            snippet = api_resp.text[:200]
+                            _send_ws(scan, {"type": "log", "level": "warn",
+                                            "message": f"C99.nl API: unexpected response format: {snippet}"})
+                    except ValueError:
+                        snippet = api_resp.text[:300]
+                        _send_ws(scan, {"type": "log", "level": "warn",
+                                        "message": f"C99.nl API: non-JSON response: {snippet}"})
+                elif api_resp.status_code == 401 or "invalid" in api_resp.text.lower():
+                    _send_ws(scan, {"type": "log", "level": "warn",
+                                    "message": "C99.nl API: invalid API key — falling back to scraping"})
+                else:
+                    _send_ws(scan, {"type": "log", "level": "warn",
+                                    "message": f"C99.nl API: HTTP {api_resp.status_code} — falling back to scraping"})
+            except Exception as e:
+                _send_ws(scan, {"type": "log", "level": "warn",
+                                "message": f"C99.nl API error: {type(e).__name__}: {e} — falling back to scraping"})
+                log.warning("C99.nl API error: %s", e)
 
-                date_before = count
-                leftover = ""
-                chunk_count = 0
-                for chunk in c99_resp.iter_content(chunk_size=131072, decode_unicode=True):
+        # ── Mode B: HTML scraper with proxy + UA rotation ──────────────
+        if not c99_success and not scan.cancelled:
+            try:
+                proxy_info = f" via proxy ({len(C99_PROXY_LIST)} in pool)" if C99_PROXY_LIST else " (no proxy — set C99_PROXIES to avoid blocks)"
+                _send_ws(scan, {"type": "log", "level": "info",
+                                "message": f"C99.nl: scraping last 30 days{proxy_info}..."})
+                log.info("SOURCE 0: C99.nl scrape mode for %s (proxies: %d)", d, len(C99_PROXY_LIST))
+                c99_found = False
+
+                pattern = _re_c99.compile(
+                    r"'([a-zA-Z0-9][a-zA-Z0-9._-]*\." + _re_c99.escape(d) + r")'"
+                )
+
+                for days_back in range(30):
                     if scan.cancelled:
                         break
-                    if chunk:
-                        text = leftover + chunk
-                        for match in pattern.findall(text):
-                            _add_sub(match, "c99")
-                        leftover = text[-300:] if len(text) > 300 else ""
-                        chunk_count += 1
-                        if chunk_count % 5 == 0:
-                            _send_ws(scan, {"type": "log", "level": "info",
-                                            "message": f"C99.nl: streaming {check_date}... +{count - c99_before} new so far..."})
-                c99_resp.close()
-                date_added = count - date_before
+                    check_date = (_date.today() - _td(days=days_back)).strftime("%Y-%m-%d")
+                    c99_url = f"https://subdomainfinder.c99.nl/scans/{check_date}/{d}"
 
-                if date_added > 0:
-                    # Found real data — stop searching older dates
-                    c99_added = count - c99_before
-                    _send_ws(scan, {"type": "log", "level": "info",
-                                    "message": f"C99.nl ({check_date}): +{c99_added} subdomains found (total: {count})"})
-                    log.info("SOURCE 0: C99.nl done, +%d new subdomains from %s", c99_added, check_date)
-                    c99_found = True
-                    break
-                else:
-                    # Empty result on this date — try older
-                    _send_ws(scan, {"type": "log", "level": "info",
-                                    "message": f"C99.nl: {check_date} has 0 subdomains, trying older..."})
-                    log.info("SOURCE 0: C99.nl %s empty for %s, trying older", check_date, d)
+                    # Pick next proxy and UA from rotation pools
+                    proxy = _next_c99_proxy()
+                    ua    = _next_c99_ua()
 
-            if not c99_found and not scan.cancelled:
+                    try:
+                        c99_resp = requests.get(
+                            c99_url, timeout=30, stream=True,
+                            headers={"User-Agent": ua, "Accept": "text/html,*/*",
+                                     "Accept-Language": "en-US,en;q=0.9",
+                                     "Referer": "https://subdomainfinder.c99.nl/"},
+                            proxies=proxy,
+                        )
+                    except requests.RequestException as req_e:
+                        proxy_str = list(proxy.values())[0] if proxy else "direct"
+                        _send_ws(scan, {"type": "log", "level": "warn",
+                                        "message": f"C99.nl: connection error via {proxy_str}: {req_e}"})
+                        continue
+
+                    # Abuse block detection
+                    if c99_resp.status_code == 403 or (
+                        c99_resp.status_code == 200 and "abuse" in c99_resp.text[:1000].lower()
+                    ):
+                        c99_resp.close()
+                        proxy_str = list(proxy.values())[0] if proxy else "direct IP"
+                        _send_ws(scan, {"type": "log", "level": "warn",
+                                        "message": f"C99.nl: abuse block detected on {proxy_str} — rotating proxy..."})
+                        log.warning("C99.nl abuse block on %s", proxy_str)
+                        # Try next proxy immediately (loop will pick it up)
+                        continue
+
+                    if c99_resp.status_code != 200:
+                        c99_resp.close()
+                        continue
+
+                    _send_ws(scan, {"type": "log", "level": "info",
+                                    "message": f"C99.nl: streaming {check_date}..."})
+
+                    date_before = count
+                    leftover = ""
+                    chunk_count = 0
+                    for chunk in c99_resp.iter_content(chunk_size=131072, decode_unicode=True):
+                        if scan.cancelled:
+                            break
+                        if chunk:
+                            text = leftover + chunk
+                            for match in pattern.findall(text):
+                                _add_sub(match, "c99")
+                            leftover = text[-300:] if len(text) > 300 else ""
+                            chunk_count += 1
+                            if chunk_count % 5 == 0:
+                                _send_ws(scan, {"type": "log", "level": "info",
+                                                "message": f"C99.nl: streaming {check_date}... +{count - c99_before} new so far..."})
+                    c99_resp.close()
+                    date_added = count - date_before
+
+                    if date_added > 0:
+                        c99_added = count - c99_before
+                        _send_ws(scan, {"type": "log", "level": "info",
+                                        "message": f"C99.nl ({check_date}): +{c99_added} subdomains found (total: {count})"})
+                        log.info("SOURCE 0: C99.nl scrape done, +%d new from %s", c99_added, check_date)
+                        c99_found = True
+                        break
+                    else:
+                        _send_ws(scan, {"type": "log", "level": "info",
+                                        "message": f"C99.nl: {check_date} empty, trying older..."})
+                        log.info("SOURCE 0: C99.nl %s empty for %s", check_date, d)
+
+                if not c99_found and not scan.cancelled:
+                    _send_ws(scan, {"type": "log", "level": "info",
+                                    "message": f"C99.nl: no scan found in last 30 days for {d}"})
+                    log.info("SOURCE 0: C99.nl — no scan in last 30 days for %s", d)
+            except Exception as e:
                 _send_ws(scan, {"type": "log", "level": "info",
-                                "message": f"C99.nl: no scan found in last 30 days for {d}"})
-                log.info("SOURCE 0: C99.nl — no scan in last 30 days for %s", d)
-        except Exception as e:
-            _send_ws(scan, {"type": "log", "level": "info",
-                            "message": f"C99.nl: failed ({type(e).__name__}: {e})"})
-            log.warning("C99.nl error: %s", e)
+                                "message": f"C99.nl: failed ({type(e).__name__}: {e})"})
+                log.warning("C99.nl error: %s", e)
 
     # ══════════════════════════════════════════════════════════════════
     # SOURCE 1: subfinder (passive — 25+ sources)
@@ -2527,6 +2652,16 @@ async def list_scans() -> JSONResponse:
         # Sort newest first
         result.sort(key=lambda x: x["started_at"] or 0, reverse=True)
     return JSONResponse(result)
+
+
+@app.get("/api/config")
+async def get_config() -> JSONResponse:
+    """Return sanitized server config (no secrets, just status flags)."""
+    return JSONResponse({
+        "c99_api_key_set": bool(C99_API_KEY),
+        "c99_proxy_count": len(C99_PROXY_LIST),
+        "c99_mode": "api" if C99_API_KEY else ("proxy-scrape" if C99_PROXY_LIST else "direct-scrape"),
+    })
 
 
 # ============================================================================

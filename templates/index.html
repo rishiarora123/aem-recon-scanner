@@ -443,6 +443,33 @@ html, body {
     align-items: center;
     gap: 16px;
 }
+.c99-badge {
+    font-size: 10px;
+    font-family: var(--mono);
+    font-weight: 600;
+    padding: 3px 8px;
+    border-radius: 4px;
+    letter-spacing: 0.5px;
+    text-transform: uppercase;
+    cursor: default;
+    user-select: none;
+    white-space: nowrap;
+}
+.c99-badge.mode-api {
+    background: rgba(0,230,118,0.12);
+    border: 1px solid rgba(0,230,118,0.35);
+    color: var(--success);
+}
+.c99-badge.mode-proxy {
+    background: rgba(0,229,255,0.10);
+    border: 1px solid rgba(0,229,255,0.30);
+    color: var(--info);
+}
+.c99-badge.mode-direct {
+    background: rgba(255,171,0,0.10);
+    border: 1px solid rgba(255,171,0,0.30);
+    color: var(--warning);
+}
 .status-indicator {
     display: flex;
     align-items: center;
@@ -1326,6 +1353,7 @@ html, body {
         </div>
         <div class="header-right">
             <button class="btn-back-dash" id="backToDash" style="display:none" onclick="showDashboard()">&#9664; Dashboard</button>
+            <div class="c99-badge" id="c99Badge" title="C99.nl subdomain source mode" style="display:none"></div>
             <div class="status-indicator">
                 <div class="status-dot" id="statusDot"></div>
                 <span id="statusText">IDLE</span>
@@ -2813,6 +2841,34 @@ html, body {
             addFeedEntry('vulnerability', 'Error loading scan: ' + e.message);
         }
     };
+
+    // ── C99 config badge ──
+    (async function loadC99Config() {
+        try {
+            const resp = await fetch('/api/config');
+            if (!resp.ok) return;
+            const cfg = await resp.json();
+            const badge = document.getElementById('c99Badge');
+            if (!badge) return;
+            const mode = cfg.c99_mode || 'direct-scrape';
+            badge.style.display = '';
+            if (mode === 'api') {
+                badge.textContent = 'C99 API ✓';
+                badge.className = 'c99-badge mode-api';
+                badge.title = 'C99.nl: using official API key — no scraping, no blocks';
+            } else if (mode === 'proxy-scrape') {
+                badge.textContent = 'C99 ' + cfg.c99_proxy_count + ' proxies';
+                badge.className = 'c99-badge mode-proxy';
+                badge.title = 'C99.nl: scraping via ' + cfg.c99_proxy_count + ' rotating proxies';
+            } else {
+                badge.textContent = 'C99 DIRECT';
+                badge.className = 'c99-badge mode-direct';
+                badge.title = 'C99.nl: direct scraping — may be blocked. Set C99_API_KEY or C99_PROXIES env var.';
+            }
+        } catch (e) {
+            // silently ignore — config endpoint may not be available
+        }
+    })();
 
     // ── Boot: show dashboard by default ──
     showDashboard();
