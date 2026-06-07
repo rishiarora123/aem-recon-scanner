@@ -3137,7 +3137,6 @@ async def upload_hosts(file: UploadFile = File(...)) -> JSONResponse:
     # Stream in 1MB chunks so RAM usage stays flat even for 1GB files
     buffer = b""
     total_bytes = 0
-    MAX_HOSTS = 5_000_000   # safety cap — 5M hosts is already ~2 weeks of scanning
 
     while True:
         chunk = await file.read(1024 * 1024)  # 1 MB
@@ -3163,10 +3162,6 @@ async def upload_hosts(file: UploadFile = File(...)) -> JSONResponse:
             if host and host not in seen:
                 seen.add(host)
                 hosts.append(host)
-                if len(hosts) >= MAX_HOSTS:
-                    break
-        if len(hosts) >= MAX_HOSTS:
-            break
 
     # Process any remaining bytes in buffer
     if buffer:
@@ -3204,7 +3199,7 @@ async def upload_hosts(file: UploadFile = File(...)) -> JSONResponse:
         "count": len(hosts),
         "size_bytes": total_bytes,
         "preview": hosts[:5],          # first 5 hosts for UI confirmation
-        "capped": len(hosts) >= MAX_HOSTS,
+        "capped": False,
     })
 
 
