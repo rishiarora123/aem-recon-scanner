@@ -2312,6 +2312,7 @@ html, body {
     }
 
     function _uploadReady(count, filename, targetPhase, extra) {
+        state._uploadedHostsCount = count;   // remember count even for server-side uploads
         _setUploadZone(
             '<div class="upload-dropzone-icon" style="color:var(--success)">&#10003;</div>' +
             '<div class="upload-dropzone-text" style="color:var(--success)">' +
@@ -2581,8 +2582,9 @@ html, body {
             return;
         }
 
+        // Use stored count for server-side uploads (no inline list available)
         const displayCount = uploadId
-            ? (state._uploadedHosts ? state._uploadedHosts.length : '?')
+            ? (state._uploadedHostsCount || '?')
             : hosts.length;
 
         // Close modal
@@ -2635,7 +2637,11 @@ html, body {
             }
             const result = await resp.json();
             state.scanId = result.scan_id;
-            addFeedEntry('info', 'Scan ID: ' + state.scanId + ' (starting from Phase ' + startPhase + ')');
+            // Use host_count from server response to confirm the actual loaded count
+            const confirmedCount = result.host_count != null
+                ? result.host_count.toLocaleString()
+                : (typeof displayCount === 'number' ? displayCount.toLocaleString() : displayCount);
+            addFeedEntry('info', 'Scan ID: ' + state.scanId + ' — ' + confirmedCount + ' hosts loaded, starting from Phase ' + startPhase);
             connectWebSocket(state.scanId);
         } catch (e) {
             addFeedEntry('vulnerability', 'Failed to start scan: ' + e.message);
@@ -2647,6 +2653,7 @@ html, body {
         state._uploadedHosts = null;
         state._uploadedHostsId = null;
         state._uploadTargetPhase = null;
+        state._uploadedHostsCount = null;
     };
 
     // Attach click handlers to phase cards
@@ -2990,6 +2997,7 @@ html, body {
         state._uploadedHosts = null;
         state._uploadedHostsId = null;
         state._uploadTargetPhase = null;
+        state._uploadedHostsCount = null;
         // Reset UI
         domainInput.value = '';
         feedContent.innerHTML = '';

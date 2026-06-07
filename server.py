@@ -2624,7 +2624,9 @@ def run_scan(scan: ScanState) -> None:
                         "host": host,
                         "status_code": 0,
                     })
-            elif scan.domain and scan.subdomains:
+            elif scan.subdomains:
+                # Run alive check on whatever subdomains we have
+                # (works whether they came from subfinder or an uploaded file)
                 phase2_alive(scan)
                 _persist_scan(scan)   # save after phase 2
                 if scan.cancelled:
@@ -2633,10 +2635,10 @@ def run_scan(scan: ScanState) -> None:
                     _persist_scan(scan)
                     return
             elif not scan.alive_hosts:
-                # Fallback: treat subdomains as alive
+                # Last resort: no subdomains, no alive list — treat urls as alive
                 scan.alive_hosts = [
                     u
-                    for u in (normalize_url(s) for s in scan.subdomains)
+                    for u in (normalize_url(s) for s in scan.urls)
                     if u
                 ]
         else:
@@ -2857,12 +2859,20 @@ async def start_scan(req: ScanRequest) -> JSONResponse:
     )
     thread.start()
 
+    # Tell the client how many hosts were loaded (so the feed shows real number not "?")
+    host_count = (
+        len(scan.subdomains) if scan.subdomains else
+        len(scan.alive_hosts) if scan.alive_hosts else
+        len(scan.aem_hosts)  if scan.aem_hosts  else 0
+    )
+
     return JSONResponse(
         status_code=202,
         content={
             "scan_id": scan_id,
             "status": "started",
             "start_phase": start_phase,
+            "host_count": host_count,
             "ws_url": f"/ws/{scan_id}",
             "status_url": f"/api/scan/{scan_id}/status",
             "results_url": f"/api/scan/{scan_id}/results",
