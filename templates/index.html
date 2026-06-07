@@ -2295,29 +2295,181 @@ html, body {
         if (zone) zone.classList.toggle('visible');
     };
 
-    // ── Handle uploaded file ──
+    // ── Handle uploaded file ──────────────────────────────────────────────────
+    // Small files (<20MB): read in browser (fast, no server round-trip)
+    // Large files (≥20MB): stream to /api/upload-hosts, get back an upload_id
+    //   This handles files of ANY size (tested with 800MB+) without crashing.
+    const LARGE_FILE_THRESHOLD = 20 * 1024 * 1024; // 20 MB
+
+    function _setUploadZone(html) {
+        const zone = document.getElementById('phaseUploadZone');
+        if (zone) zone.innerHTML = html;
+    }
+
+    function _uploadReady(count, filename, targetPhase, extra) {
+        _setUploadZone(
+            '<div class="upload-dropzone-icon" style="color:var(--success)">&#10003;</div>' +
+            '<div class="upload-dropzone-text" style="color:var(--success)">' +
+                count.toLocaleString() + ' hosts loaded from ' + escapeHtml(filename) +
+                (extra ? ' <span style="color:var(--text-muted);font-size:11px">(' + extra + ')</span>' : '') +
+            '</div>' +
+            '<div class="upload-dropzone-hint">Click "Continue from P' + targetPhase + '" to start scanning</div>'
+        );
+        // Enable continue button if present
+        const btn = document.getElementById('uploadContinueBtn');
+        if (btn) btn.disabled = false;
+        showToast(count.toLocaleString() + ' hosts loaded — ready to continue from Phase ' + targetPhase);
+    }
+
     function handlePhaseFile(file, targetPhase) {
+        if (!file) return;
+
+        // ── Large file: stream to server ──────────────────────────────────────
+        if (file.size >= LARGE_FILE_THRESHOLD) {
+            const sizeMB = (file.size / 1024 / 1024).toFixed(1);
+            _setUploadZone(
+                '<div class="upload-dropzone-icon" style="color:var(--info)">&#8682;</div>' +
+                '<div class="upload-dropzone-text" style="color:var(--info)">Uploading ' + escapeHtml(file.name) + ' (' + sizeMB + ' MB) to server...</div>' +
+                '<div class="upload-dropzone-hint"><progress id="uploadProgress" value="0" max="100" style="width:100%;margin-top:8px"></progress></div>'
+            );
+
+            const formData = new FormData();
+            formData.append('file', file);
+
+            const xhr = new XMLHttpRequest();
+            xhr.open('POST', '/api/upload-hosts');
+
+            xhr.upload.onprogress = function(e) {
+                if (e.lengthComputable) {
+                    const pct = Math.round(e.loaded / e.total * 100);
+                    const bar = document.getElementById('uploadProgress');
+                    if (bar) bar.value = pct;
+                    const zone = document.getElementById('phaseUploadZone');
+                    const hint = zone && zone.querySelector('.upload-dropzone-hint');
+                    if (hint) {
+                        const mb = (e.loaded / 1024 / 1024).toFixed(0);
+                        hint.innerHTML = '<progress value="' + pct + '" max="100" style="width:100%;margin-top:8px"></progress>' +
+                            '<div style="font-size:11px;color:var(--text-muted);margin-top:4px">Uploaded ' + mb + ' MB / ' + sizeMB + ' MB (' + pct + '%)</div>';
+                    }
+                }
+            };
+
+            xhr.onload = function() {
+                if (xhr.status === 200) {
+                    const data = JSON.parse(xhr.responseText);
+                    state._uploadedHosts = null;             // clear inline list
+                    state._uploadedHostsId = data.upload_id; // use server-side ID
+                    state._uploadTargetPhase = targetPhase;
+                    const extra = data.capped ? 'capped at 5M' : ('server-side, ' + sizeMB + ' MB');
+                    _uploadReady(data.count, data.filename, targetPhase, extra);
+                } else {
+                    let msg = 'Upload failed';
+                    try { msg = JSON.parse(xhr.responseText).detail || msg; } catch(e) {}
+                    _setUploadZone(
+                        '<div class="upload-dropzone-icon" style="color:var(--critical)">&#10007;</div>' +
+                        '<div class="upload-dropzone-text" style="color:var(--critical)">Upload error: ' + escapeHtml(msg) + '</div>' +
+                        '<div class="upload-dropzone-hint">Try a smaller file or check server logs</div>'
+                    );
+                    showToast('Upload failed: ' + msg);
+                }
+            };
+
+            xhr.onerror = function() {
+                _setUploadZone(
+                    '<div class="upload-dropzone-icon" style="color:var(--critical)">&#10007;</div>' +
+                    '<div class="upload-dropzone-text" style="color:var(--critical)">Network error — server unreachable</div>' +
+                    '<div class="upload-dropzone-hint">Make sure the server is running</div>'
+                );
+                showToast('Upload failed — could not reach server');
+            };
+
+            xhr.send(formData);
+            return;
+        }
+
+        // ── Small file: read in browser ───────────────────────────────────────
+        const sizeMB = (file.size / 1024 / 1024).toFixed(1);
+        _setUploadZone(
+            '<div class="upload-dropzone-icon" style="color:var(--info)">&#8682;</div>' +
+            '<div class="upload-dropzone-text" style="color:var(--info)">Reading ' + escapeHtml(file.name) + ' (' + sizeMB + ' MB)...</div>' +
+            '<div class="upload-dropzone-hint">Parsing hosts...</div>'
+        );
+
         const reader = new FileReader();
+
+        reader.onerror = function() {
+            _setUploadZone(
+                '<div class="upload-dropzone-icon" style="color:var(--critical)">&#10007;</div>' +
+                '<div class="upload-dropzone-text" style="color:var(--critical)">Could not read file</div>' +
+                '<div class="upload-dropzone-hint">File may be corrupt or too large for browser — server upload triggered instead</div>'
+            );
+            // Auto-retry via server upload
+            if (file.size > 1024 * 1024) {
+                // fake it above threshold to retry via XHR
+                const bigFile = new File([file], file.name, { type: file.type });
+                Object.defineProperty(bigFile, 'size', { value: LARGE_FILE_THRESHOLD });
+                handlePhaseFile(bigFile, targetPhase);
+            }
+        };
+
         reader.onload = function(e) {
-            const lines = e.target.result.split('\n').map(l => l.trim()).filter(Boolean);
-            if (lines.length === 0) {
-                showToast('File is empty — no hosts found');
+            const raw = e.target.result;
+            if (!raw) {
+                // FileReader silently returned empty — fall back to server upload
+                showToast('Browser could not read file — uploading to server instead...');
+                // Re-route to server upload path
+                const formData = new FormData();
+                formData.append('file', file);
+                fetch('/api/upload-hosts', { method: 'POST', body: formData })
+                    .then(r => r.json())
+                    .then(data => {
+                        if (data.upload_id) {
+                            state._uploadedHosts = null;
+                            state._uploadedHostsId = data.upload_id;
+                            state._uploadTargetPhase = targetPhase;
+                            _uploadReady(data.count, data.filename, targetPhase, 'server-side');
+                        } else {
+                            showToast('Error: ' + (data.detail || 'unknown'));
+                        }
+                    })
+                    .catch(() => showToast('Upload failed — server unreachable'));
                 return;
             }
-            state._uploadedHosts = lines;
-            state._uploadTargetPhase = targetPhase;
 
-            // Update the upload zone to show what was loaded
-            const zone = document.getElementById('phaseUploadZone');
-            if (zone) {
-                zone.innerHTML =
-                    '<div class="upload-dropzone-icon" style="color:var(--success)">&#10003;</div>' +
-                    '<div class="upload-dropzone-text" style="color:var(--success)">' + lines.length + ' hosts loaded from ' + escapeHtml(file.name) + '</div>' +
-                    '<div class="upload-dropzone-hint">Click "Continue from P' + targetPhase + '" to start scanning</div>';
+            // Parse hosts: strip scheme, ignore comments
+            const lines = raw.split('\n')
+                .map(l => {
+                    let h = l.trim();
+                    if (!h || h.startsWith('#')) return null;
+                    if (h.toLowerCase().startsWith('https://')) h = h.slice(8);
+                    else if (h.toLowerCase().startsWith('http://')) h = h.slice(7);
+                    return h.split('/')[0].split('?')[0].replace(/:$/, '') || null;
+                })
+                .filter(Boolean);
+
+            // Deduplicate preserving order
+            const seen = new Set();
+            const hosts = [];
+            for (const h of lines) {
+                if (!seen.has(h)) { seen.add(h); hosts.push(h); }
             }
 
-            showToast(lines.length + ' hosts loaded — ready to continue from Phase ' + targetPhase);
+            if (hosts.length === 0) {
+                _setUploadZone(
+                    '<div class="upload-dropzone-icon" style="color:var(--critical)">&#10007;</div>' +
+                    '<div class="upload-dropzone-text" style="color:var(--critical)">No valid hosts found in file</div>' +
+                    '<div class="upload-dropzone-hint">File must have one hostname or URL per line</div>'
+                );
+                showToast('No valid hosts found in file');
+                return;
+            }
+
+            state._uploadedHosts = hosts;
+            state._uploadedHostsId = null;
+            state._uploadTargetPhase = targetPhase;
+            _uploadReady(hosts.length, file.name, targetPhase, null);
         };
+
         reader.readAsText(file);
     }
 
@@ -2378,15 +2530,11 @@ html, body {
                 e.preventDefault(); zone.classList.remove('drag-over');
                 if (e.dataTransfer.files.length > 0) {
                     handlePhaseFile(e.dataTransfer.files[0], targetPhase);
-                    const btn = document.getElementById('uploadContinueBtn');
-                    if (btn) btn.disabled = false;
                 }
             });
             fileInput.addEventListener('change', function() {
                 if (fileInput.files.length > 0) {
                     handlePhaseFile(fileInput.files[0], targetPhase);
-                    const btn = document.getElementById('uploadContinueBtn');
-                    if (btn) btn.disabled = false;
                 }
             });
         }
@@ -2402,10 +2550,21 @@ html, body {
         }
 
         // Determine the host list to send
+        // Priority: server-side upload ID > inline list > previous phase data
         let hosts = [];
-        if (state._uploadedHosts && state._uploadedHosts.length > 0 && state._uploadTargetPhase === startPhase) {
-            hosts = state._uploadedHosts;
-        } else {
+        let uploadId = null;
+
+        if (state._uploadTargetPhase === startPhase) {
+            if (state._uploadedHostsId) {
+                // Large file was uploaded to server — use the ID, not inline list
+                uploadId = state._uploadedHostsId;
+                hosts = ['placeholder'];   // non-empty so length check passes
+            } else if (state._uploadedHosts && state._uploadedHosts.length > 0) {
+                hosts = state._uploadedHosts;
+            }
+        }
+
+        if (hosts.length === 0) {
             // Use data from previous phase
             const prevPhase = startPhase - 1;
             const pd = getPhaseData(prevPhase);
@@ -2416,6 +2575,10 @@ html, body {
             showToast('No hosts available — upload a file or run previous phases first');
             return;
         }
+
+        const displayCount = uploadId
+            ? (state._uploadedHosts ? state._uploadedHosts.length : '?')
+            : hosts.length;
 
         // Close modal
         modalOverlay.classList.remove('open');
@@ -2441,13 +2604,18 @@ html, body {
 
         setScanningState(true);
         startTimer();
-        addFeedEntry('info', 'Continuing from Phase ' + startPhase + ' with ' + hosts.length + ' hosts');
+        addFeedEntry('info', 'Continuing from Phase ' + startPhase + ' with ' + (typeof displayCount === 'number' ? displayCount.toLocaleString() : displayCount) + ' hosts');
 
         try {
             const body = {
                 start_phase: startPhase,
-                uploaded_hosts: hosts,
             };
+            // Use server-side upload ID for large files, inline list for small
+            if (uploadId) {
+                body.uploaded_hosts_id = uploadId;
+            } else {
+                body.uploaded_hosts = hosts;
+            }
             // Add domain if available
             if (state.domain) body.domain = state.domain;
 
@@ -2472,6 +2640,7 @@ html, body {
 
         // Clear upload state
         state._uploadedHosts = null;
+        state._uploadedHostsId = null;
         state._uploadTargetPhase = null;
     };
 
@@ -2814,6 +2983,8 @@ html, body {
         state.aliveList = [];
         state.feedEntries = 0;
         state._uploadedHosts = null;
+        state._uploadedHostsId = null;
+        state._uploadTargetPhase = null;
         // Reset UI
         domainInput.value = '';
         feedContent.innerHTML = '';

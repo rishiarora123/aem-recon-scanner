@@ -38,7 +38,7 @@ from enum import Enum
 from typing import Any
 
 import requests
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException
+from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException, UploadFile, File
 from fastapi.responses import HTMLResponse, JSONResponse
 from pydantic import BaseModel
 from urllib3.exceptions import InsecureRequestWarning
@@ -600,6 +600,11 @@ class ScanState:
 # Global scan registry
 scans: dict[str, ScanState] = {}
 scans_lock = threading.Lock()
+
+# ── Uploaded host list store ──────────────────────────────────────────────────
+# upload_id -> {"hosts": [...], "filename": str, "count": int, "created_at": float}
+_uploads: dict[str, dict] = {}
+_uploads_lock = threading.Lock()
 
 
 # ============================================================================
@@ -2635,7 +2640,8 @@ class ScanRequest(BaseModel):
     bypass_mode: str = "full"
     # Continue-from-phase support
     start_phase: int = 1          # 1=subdomains, 2=alive, 3=aem, 4=bypass
-    uploaded_hosts: list[str] | None = None  # pre-populated host list for the start_phase
+    uploaded_hosts: list[str] | None = None       # small inline host list
+    uploaded_hosts_id: str | None = None          # server-side upload ID (for large files)
 
 
 @app.post("/api/scan")
@@ -2643,6 +2649,14 @@ async def start_scan(req: ScanRequest) -> JSONResponse:
     """Start a new scan. Accepts domain, single url, or url list.
     Supports continue-from-phase via start_phase + uploaded_hosts.
     """
+    # Resolve server-side upload ID → inline host list
+    if req.uploaded_hosts_id and not req.uploaded_hosts:
+        with _uploads_lock:
+            upload_rec = _uploads.get(req.uploaded_hosts_id)
+        if not upload_rec:
+            raise HTTPException(status_code=400, detail="Upload ID not found or expired — re-upload the file")
+        req.uploaded_hosts = upload_rec["hosts"]
+
     # For continue-from-phase, uploaded_hosts is enough (no domain needed)
     if not req.domain and not req.url and not req.urls and not req.uploaded_hosts:
         raise HTTPException(
@@ -2950,6 +2964,110 @@ async def test_proxies_endpoint() -> JSONResponse:
         "tested": len(results),
         "working": results,
     })
+
+
+# ============================================================================
+# HOST FILE UPLOAD  (server-side streaming — handles files of any size)
+# ============================================================================
+@app.post("/api/upload-hosts")
+async def upload_hosts(file: UploadFile = File(...)) -> JSONResponse:
+    """
+    Stream-parse an uploaded host/subdomain list of any size.
+    Returns an upload_id the frontend can pass to /api/scan as uploaded_hosts_id.
+
+    Accepts:
+      - One host/subdomain per line
+      - Bare domains:  example.com
+      - Full URLs:     https://example.com  (scheme stripped, just domain kept)
+      - Blank lines and # comments are ignored
+      - File size: unlimited (streamed, never fully loaded into memory)
+    """
+    upload_id = str(uuid.uuid4())
+    hosts: list[str] = []
+    seen: set[str] = set()
+    filename = file.filename or "upload.txt"
+
+    # Stream in 1MB chunks so RAM usage stays flat even for 1GB files
+    buffer = b""
+    total_bytes = 0
+    MAX_HOSTS = 5_000_000   # safety cap — 5M hosts is already ~2 weeks of scanning
+
+    while True:
+        chunk = await file.read(1024 * 1024)  # 1 MB
+        if not chunk:
+            break
+        total_bytes += len(chunk)
+        buffer += chunk
+
+        # Process complete lines from buffer
+        lines = buffer.split(b"\n")
+        buffer = lines[-1]          # keep the incomplete last line for next iteration
+        for raw in lines[:-1]:
+            line = raw.decode(errors="ignore").strip()
+            if not line or line.startswith("#"):
+                continue
+            # Strip scheme if present
+            for scheme in ("https://", "http://"):
+                if line.lower().startswith(scheme):
+                    line = line[len(scheme):]
+                    break
+            # Strip trailing path/port junk — keep just the host
+            host = line.split("/")[0].split("?")[0].rstrip(":")
+            if host and host not in seen:
+                seen.add(host)
+                hosts.append(host)
+                if len(hosts) >= MAX_HOSTS:
+                    break
+        if len(hosts) >= MAX_HOSTS:
+            break
+
+    # Process any remaining bytes in buffer
+    if buffer:
+        line = buffer.decode(errors="ignore").strip()
+        if line and not line.startswith("#"):
+            for scheme in ("https://", "http://"):
+                if line.lower().startswith(scheme):
+                    line = line[len(scheme):]
+                    break
+            host = line.split("/")[0].split("?")[0].rstrip(":")
+            if host and host not in seen:
+                hosts.append(host)
+
+    if not hosts:
+        raise HTTPException(status_code=400, detail="No valid hosts found in file")
+
+    # Store in upload registry (expires after 2h to free memory)
+    with _uploads_lock:
+        # Evict uploads older than 2h
+        now = time.time()
+        stale = [uid for uid, u in _uploads.items() if now - u["created_at"] > 7200]
+        for uid in stale:
+            del _uploads[uid]
+        _uploads[upload_id] = {
+            "hosts": hosts,
+            "filename": filename,
+            "count": len(hosts),
+            "created_at": now,
+        }
+
+    log.info("upload-hosts: %s — %d hosts from %s (%d bytes)", upload_id, len(hosts), filename, total_bytes)
+    return JSONResponse({
+        "upload_id": upload_id,
+        "filename": filename,
+        "count": len(hosts),
+        "size_bytes": total_bytes,
+        "preview": hosts[:5],          # first 5 hosts for UI confirmation
+        "capped": len(hosts) >= MAX_HOSTS,
+    })
+
+
+@app.get("/api/upload-hosts/{upload_id}")
+async def get_upload(upload_id: str) -> JSONResponse:
+    with _uploads_lock:
+        u = _uploads.get(upload_id)
+    if not u:
+        raise HTTPException(status_code=404, detail="Upload not found or expired")
+    return JSONResponse({"upload_id": upload_id, "count": u["count"], "filename": u["filename"]})
 
 
 # ============================================================================
