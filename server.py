@@ -606,6 +606,118 @@ scans_lock = threading.Lock()
 _uploads: dict[str, dict] = {}
 _uploads_lock = threading.Lock()
 
+# ============================================================================
+# PERSISTENCE — save scans to disk so they survive server restarts
+# ============================================================================
+DB_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "scans_db.json")
+_db_lock = threading.Lock()
+
+
+def _scan_to_dict(scan: ScanState) -> dict[str, Any]:
+    """Serialise a ScanState to a plain dict (only JSON-safe fields)."""
+    return {
+        "scan_id":              scan.scan_id,
+        "domain":               scan.domain,
+        "urls":                 scan.urls,
+        "phase":                scan.phase.value,
+        "status":               scan.status,
+        "started_at":           scan.started_at,
+        "finished_at":          scan.finished_at,
+        "subdomains":           scan.subdomains,
+        "alive_hosts":          scan.alive_hosts,
+        "aem_hosts":            scan.aem_hosts,
+        "vulnerabilities":      scan.vulnerabilities,
+        "vulnerability_summary":scan.vulnerability_summary,
+        "threads":              scan.threads,
+        "per_host":             scan.per_host,
+        "timeout":              scan.timeout,
+        "bypass_mode":          scan.bypass_mode,
+    }
+
+
+def _dict_to_scan(d: dict[str, Any]) -> ScanState:
+    """Reconstruct a ScanState from a persisted dict (read-only, no live threads)."""
+    scan = ScanState(scan_id=d["scan_id"])
+    scan.domain              = d.get("domain")
+    scan.urls                = d.get("urls", [])
+    scan.phase               = ScanPhase(d.get("phase", ScanPhase.SUBDOMAIN.value))
+    scan.status              = d.get("status", "complete")
+    scan.started_at          = d.get("started_at", 0.0)
+    scan.finished_at         = d.get("finished_at", 0.0)
+    scan.subdomains          = d.get("subdomains", [])
+    scan.alive_hosts         = d.get("alive_hosts", [])
+    scan.aem_hosts           = d.get("aem_hosts", {})
+    scan.vulnerabilities     = d.get("vulnerabilities", [])
+    scan.vulnerability_summary = d.get("vulnerability_summary", {})
+    scan.threads             = d.get("threads", DEFAULT_THREADS)
+    scan.per_host            = d.get("per_host", DEFAULT_PER_HOST)
+    scan.timeout             = d.get("timeout", DEFAULT_TIMEOUT)
+    scan.bypass_mode         = d.get("bypass_mode", "full")
+    return scan
+
+
+def _persist_scan(scan: ScanState) -> None:
+    """Write/update this scan in the on-disk DB (thread-safe)."""
+    with _db_lock:
+        try:
+            # Load existing DB
+            if os.path.exists(DB_PATH):
+                with open(DB_PATH, "r") as f:
+                    db: dict[str, Any] = json.load(f)
+            else:
+                db = {}
+            db[scan.scan_id] = _scan_to_dict(scan)
+            # Write atomically via temp file
+            tmp = DB_PATH + ".tmp"
+            with open(tmp, "w") as f:
+                json.dump(db, f, separators=(",", ":"))
+            os.replace(tmp, DB_PATH)
+        except Exception as e:
+            log.warning("Failed to persist scan %s: %s", scan.scan_id, e)
+
+
+def _delete_persisted_scan(scan_id: str) -> None:
+    """Remove a scan from the on-disk DB."""
+    with _db_lock:
+        try:
+            if not os.path.exists(DB_PATH):
+                return
+            with open(DB_PATH, "r") as f:
+                db: dict[str, Any] = json.load(f)
+            if scan_id in db:
+                del db[scan_id]
+                tmp = DB_PATH + ".tmp"
+                with open(tmp, "w") as f:
+                    json.dump(db, f, separators=(",", ":"))
+                os.replace(tmp, DB_PATH)
+        except Exception as e:
+            log.warning("Failed to delete persisted scan %s: %s", scan_id, e)
+
+
+def _load_persisted_scans() -> None:
+    """Load all scans from disk into the in-memory registry at startup."""
+    if not os.path.exists(DB_PATH):
+        return
+    try:
+        with open(DB_PATH, "r") as f:
+            db: dict[str, Any] = json.load(f)
+        loaded = 0
+        for scan_id, d in db.items():
+            try:
+                scan = _dict_to_scan(d)
+                # Mark any scan that was "running" when server died as interrupted
+                if scan.status in ("running", "pending"):
+                    scan.status = "interrupted"
+                    if not scan.finished_at:
+                        scan.finished_at = scan.started_at  # best we can do
+                scans[scan_id] = scan
+                loaded += 1
+            except Exception as e:
+                log.warning("Skipping corrupt scan record %s: %s", scan_id, e)
+        log.info("Loaded %d persisted scans from %s", loaded, DB_PATH)
+    except Exception as e:
+        log.warning("Could not load scan DB: %s", e)
+
 
 # ============================================================================
 # WEBSOCKET MESSAGING
@@ -2459,6 +2571,7 @@ def run_scan(scan: ScanState) -> None:
     """Execute all 4 phases sequentially in a background thread."""
     scan.started_at = time.time()
     scan.status = "running"
+    _persist_scan(scan)   # save "running" state immediately
 
     # Determine starting phase (for continue-from-phase support)
     start_phase = getattr(scan, '_start_phase', 1)
@@ -2468,8 +2581,11 @@ def run_scan(scan: ScanState) -> None:
         if start_phase <= 1:
             if scan.domain and not scan.urls:
                 phase1_subdomains(scan)
+                _persist_scan(scan)   # save after phase 1
                 if scan.cancelled:
                     scan.status = "cancelled"
+                    scan.finished_at = time.time()
+                    _persist_scan(scan)
                     return
             elif scan.urls:
                 # Direct URL mode: skip subfinder, populate alive hosts directly
@@ -2510,8 +2626,11 @@ def run_scan(scan: ScanState) -> None:
                     })
             elif scan.domain and scan.subdomains:
                 phase2_alive(scan)
+                _persist_scan(scan)   # save after phase 2
                 if scan.cancelled:
                     scan.status = "cancelled"
+                    scan.finished_at = time.time()
+                    _persist_scan(scan)
                     return
             elif not scan.alive_hosts:
                 # Fallback: treat subdomains as alive
@@ -2532,6 +2651,8 @@ def run_scan(scan: ScanState) -> None:
         if not scan.alive_hosts:
             scan.status = "complete"
             scan.phase = ScanPhase.COMPLETE
+            scan.finished_at = time.time()
+            _persist_scan(scan)
             _send_ws(scan, {
                 "type": "scan_complete",
                 "summary": {"error": "No alive hosts found"},
@@ -2548,8 +2669,11 @@ def run_scan(scan: ScanState) -> None:
                     "counts": {"alive": len(scan.alive_hosts)},
                 })
             phase3_aem_detect(scan)
+            _persist_scan(scan)   # save after phase 3
             if scan.cancelled:
                 scan.status = "cancelled"
+                scan.finished_at = time.time()
+                _persist_scan(scan)
                 return
         else:
             _send_ws(scan, {
@@ -2573,13 +2697,17 @@ def run_scan(scan: ScanState) -> None:
                         "reasons": info.get("reasons", []),
                     })
             phase4_bypass(scan)
+            _persist_scan(scan)   # save after phase 4
             if scan.cancelled:
                 scan.status = "cancelled"
+                scan.finished_at = time.time()
+                _persist_scan(scan)
                 return
 
         scan.status = "complete"
         scan.phase = ScanPhase.COMPLETE
         scan.finished_at = time.time()
+        _persist_scan(scan)   # final save
 
         elapsed = scan.finished_at - scan.started_at
         _send_ws(scan, {
@@ -2610,6 +2738,7 @@ def run_scan(scan: ScanState) -> None:
         scan.status = "error"
         scan.phase = ScanPhase.ERROR
         scan.finished_at = time.time()
+        _persist_scan(scan)
         log.exception("Scan %s failed: %s", scan.scan_id, e)
         _send_ws(scan, {
             "type": "scan_complete",
@@ -2628,6 +2757,13 @@ app = FastAPI(
     version="2.0.0",
     description="Real-time AEM Dispatcher bypass detection with WebSocket updates",
 )
+
+
+@app.on_event("startup")
+async def startup_event() -> None:
+    """Load persisted scans from disk on server start."""
+    _load_persisted_scans()
+    log.info("Server started — %d scan(s) restored from disk", len(scans))
 
 
 class ScanRequest(BaseModel):
@@ -2818,6 +2954,7 @@ async def delete_scan(scan_id: str) -> JSONResponse:
                     pass
             scan.ws_connections.clear()
         del scans[scan_id]
+    _delete_persisted_scan(scan_id)
     return JSONResponse({"scan_id": scan_id, "deleted": True})
 
 
@@ -3661,11 +3798,15 @@ async def serve_frontend() -> str:
 # ============================================================================
 @app.on_event("shutdown")
 async def shutdown_event() -> None:
-    """Cancel all running scans on shutdown."""
+    """Cancel running scans and persist their current state before shutdown."""
     with scans_lock:
         for scan in scans.values():
             scan.cancelled = True
-    log.info("All scans cancelled on shutdown")
+            if scan.status == "running":
+                scan.status = "interrupted"
+                scan.finished_at = scan.finished_at or time.time()
+                _persist_scan(scan)   # save "interrupted" so dashboard shows it after restart
+    log.info("All scans cancelled and persisted on shutdown")
 
 
 # ============================================================================

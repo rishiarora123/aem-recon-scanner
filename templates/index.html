@@ -255,6 +255,11 @@ html, body {
     background: rgba(233,69,96,0.1);
     color: var(--critical);
 }
+.status-badge.interrupted {
+    background: rgba(255,171,0,0.08);
+    color: var(--warning);
+    opacity: 0.7;
+}
 
 /* Table cell styles */
 .cell-domain {
@@ -3049,11 +3054,13 @@ html, body {
             const statusClass = s.status === 'running' ? 'running' :
                                 s.status === 'complete' ? 'complete' :
                                 s.status === 'cancelled' ? 'cancelled' :
-                                s.status === 'error' ? 'error' : 'pending';
+                                s.status === 'error' ? 'error' :
+                                s.status === 'interrupted' ? 'interrupted' : 'pending';
             const statusText = s.status === 'running' ? 'Scanning' :
                                s.status === 'complete' ? 'Complete' :
                                s.status === 'cancelled' ? 'Cancelled' :
                                s.status === 'error' ? 'Error' :
+                               s.status === 'interrupted' ? '⚡ Interrupted' :
                                s.status.charAt(0).toUpperCase() + s.status.slice(1);
 
             const aemClass = (s.aem_total > 0) ? 'cell-num has-value aem-value' : 'cell-num';
