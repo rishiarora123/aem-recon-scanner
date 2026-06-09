@@ -719,7 +719,8 @@ class ScanState:
     # Resume cursors — how many items each phase has fully processed.
     # Saved to disk on graceful shutdown so a restart can pick up mid-phase.
     phase2_cursor: int = 0   # subdomains sent to httpx
-    phase3_cursor: int = 0   # alive hosts probed for AEM (tracked via aem_hosts keys)
+    phase3_cursor: int = 0   # alive hosts probed for AEM
+    phase3_probed: set[str] = field(default_factory=set)  # explicit probed set (resume)
     # phase4 deduplication is driven by scan.vulnerabilities — no separate cursor needed
 
     # Message queue for async delivery
@@ -771,6 +772,7 @@ def _scan_to_dict(scan: ScanState) -> dict[str, Any]:
         "paused_at":            scan.paused_at,
         "phase2_cursor":        scan.phase2_cursor,
         "phase3_cursor":        scan.phase3_cursor,
+        "phase3_probed":        list(scan.phase3_probed),
     }
 
 
@@ -797,6 +799,13 @@ def _dict_to_scan(d: dict[str, Any]) -> ScanState:
     scan.paused_at           = d.get("paused_at", 0.0)
     scan.phase2_cursor       = d.get("phase2_cursor", 0)
     scan.phase3_cursor       = d.get("phase3_cursor", 0)
+    # Back-compat: if phase3_probed isn't in the snapshot but aem_hosts is,
+    # seed the probed set from aem_hosts keys (older format).
+    probed_list = d.get("phase3_probed")
+    if probed_list:
+        scan.phase3_probed = set(probed_list)
+    else:
+        scan.phase3_probed = set((d.get("aem_hosts") or {}).keys())
     return scan
 
 
@@ -2948,12 +2957,14 @@ def detect_nextjs_host(base_url: str, timeout: int = 10) -> dict[str, Any]:
     # fetch up to 10 and attempt version extraction.  Also capture React version from
     # the framework chunk so we can infer the Next.js range later.
     if result["detected"] and html:
+        # Capture chunk URLs INCLUDING query strings (Vercel deploy-lock builds
+        # need ?dpl=... to serve real JS; without it they 404 to HTML)
         all_chunk_srcs = re.findall(
-            r'["\'](\/_next\/static\/chunks\/[^"\'?>\s]+\.js)["\']', html
+            r'["\'](\/_next\/static\/chunks\/[^"\'>\s]+\.js(?:\?[^"\'>\s]*)?)["\']', html
         )
 
         def _chunk_sort_key(src: str) -> int:
-            name = src.rsplit("/", 1)[-1].lower()
+            name = src.split("?", 1)[0].rsplit("/", 1)[-1].lower()
             if "framework" in name:    return 0
             if "webpack"   in name:    return 1
             if "main-app"  in name:    return 2
@@ -2965,8 +2976,10 @@ def detect_nextjs_host(base_url: str, timeout: int = 10) -> dict[str, Any]:
 
         react_ver_found: str | None = None
         probed = 0
+        # Bump max probes to 18 (up from 10) — heavily-obfuscated builds with no
+        # framework chunk need broader sampling to find React or version strings.
         for chunk_src in sorted(set(all_chunk_srcs), key=_chunk_sort_key):
-            if probed >= 10:
+            if probed >= 18:
                 break
             probed += 1
             try:
@@ -2981,8 +2994,10 @@ def detect_nextjs_host(base_url: str, timeout: int = 10) -> dict[str, Any]:
                 body_preview = r.text[:80].strip()
                 if body_preview.startswith(("<", "<!")) and "javascript" not in ct:
                     continue
-                js_text = r.text[:120_000]
-                chunk_name = chunk_src.rsplit("/", 1)[-1]
+                js_text = r.text[:200_000]
+                # Strip query string from display name only
+                chunk_name = chunk_src.split("?", 1)[0].rsplit("/", 1)[-1]
+                chunk_lower = chunk_name.lower()
 
                 if not result["version"]:
                     ver = _extract_nextjs_version_from_js(js_text)
@@ -2992,7 +3007,7 @@ def detect_nextjs_host(base_url: str, timeout: int = 10) -> dict[str, Any]:
                         result["methods"].append(f"JS chunk version ({chunk_name})")
 
                 # Detect App Router from main-app chunk
-                if "main-app" in chunk_src.lower() and "appRouter" in js_text[:8000]:
+                if "main-app" in chunk_lower and "appRouter" in js_text[:8000]:
                     if not result["router"]:
                         result["router"] = "app"
                     elif result["router"] == "pages":
@@ -3000,12 +3015,14 @@ def detect_nextjs_host(base_url: str, timeout: int = 10) -> dict[str, Any]:
                     if "main-app.js chunk (App Router confirmed)" not in result["methods"]:
                         result["methods"].append("main-app.js chunk (App Router confirmed)")
 
-                # Extract React version from framework chunk for inference
-                if not react_ver_found and "framework" in chunk_src.lower():
-                    react_ver_found = _extract_react_version_from_js(js_text)
-                    if react_ver_found:
-                        result["react_version"] = react_ver_found
-                        result["evidence"].append(f"React {react_ver_found} in framework chunk")
+                # Extract React version — try framework chunk first, then ANY chunk
+                # as a fallback (heavily-obfuscated builds have no framework-* file)
+                if not react_ver_found:
+                    rv = _extract_react_version_from_js(js_text)
+                    if rv:
+                        react_ver_found = rv
+                        result["react_version"] = rv
+                        result["evidence"].append(f"React {rv} in chunk {chunk_name}")
 
             except requests.RequestException:
                 pass
@@ -3102,9 +3119,11 @@ def detect_nextjs_host(base_url: str, timeout: int = 10) -> dict[str, Any]:
     # (e.g. Microsoft, Vercel enterprise) that strip version strings entirely.
     if result["detected"] and not result["version"]:
         # Try to get React version if we haven't already (from framework chunk)
+        # Preserve query string (?dpl=, ?v=, etc.) — required by Vercel deploy-lock.
         if not result["react_version"] and html:
             fw_src = re.search(
-                r'["\'](\/_next\/static\/chunks\/framework[-.\w]+\.js)["\']', html
+                r'["\'](\/_next\/static\/chunks\/framework[-.\w]+\.js(?:\?[^"\']*)?)["\']',
+                html,
             )
             if fw_src:
                 try:
@@ -3113,7 +3132,7 @@ def detect_nextjs_host(base_url: str, timeout: int = 10) -> dict[str, Any]:
                         verify=False, allow_redirects=False,
                     )
                     if r.status_code == 200:
-                        rv = _extract_react_version_from_js(r.text[:120_000])
+                        rv = _extract_react_version_from_js(r.text[:200_000])
                         if rv:
                             result["react_version"] = rv
                             result["evidence"].append(f"React {rv} in framework chunk")
@@ -3136,6 +3155,19 @@ def detect_nextjs_host(base_url: str, timeout: int = 10) -> dict[str, Any]:
                     )
             except (ValueError, AttributeError):
                 pass
+
+    # ── Vercel deploy-lock detection ──────────────────────────────────────────
+    # Some deployments (Airtable, etc.) auth-wall every /_next/static/ chunk so
+    # version extraction is impossible from outside. Detect this and report it
+    # clearly instead of leaving the version null.
+    if result["detected"] and not result["version"] and html:
+        if "?dpl=dpl_" in html or "_dpl_" in (result.get("build_id") or ""):
+            result["version"] = "vercel-locked"
+            result["version_inferred"] = True
+            result["methods"].append("Vercel deploy-lock detected (chunks auth-walled)")
+            result["evidence"].append(
+                "All /_next/static/ chunks return 404 without auth — version cannot be extracted"
+            )
 
     # ── Populate CVE list now that version is finalised ────────────────────────
     if result["detected"]:
@@ -3169,7 +3201,9 @@ def phase3_aem_detect(scan: ScanState) -> None:
     scan.phase = ScanPhase.AEM_DETECT
 
     # ── Resume support: skip hosts already probed in a prior run ──
-    already_probed = set(scan.aem_hosts.keys())
+    # Use the explicit phase3_probed set (tracks every probed host, AEM or not)
+    # rather than scan.aem_hosts (which only contains AEM-positive hosts now).
+    already_probed = set(scan.phase3_probed)
     if already_probed:
         hosts = [h for h in hosts if h.rstrip("/") not in already_probed]
         log.info(
@@ -3215,11 +3249,17 @@ def phase3_aem_detect(scan: ScanState) -> None:
 
         with lock:
             done[0] += 1
-            scan.aem_hosts[base] = {
-                "confidence": confidence,
-                "score": score,
-                "reasons": reasons,
-            }
+            # Mark this host as probed (resume-tracking).
+            scan.phase3_probed.add(base)
+            # Only persist hosts that are actually AEM (confirmed / suspected /
+            # edge_delivery). Storing every probed not_aem host inflated the AEM
+            # count and bloated scans_db.json.
+            if confidence in ("confirmed", "suspected", "edge_delivery"):
+                scan.aem_hosts[base] = {
+                    "confidence": confidence,
+                    "score": score,
+                    "reasons": reasons,
+                }
             scan.phase3_cursor = len(already_probed) + done[0]
             if nextjs["detected"]:
                 scan.nextjs_hosts[base] = nextjs
