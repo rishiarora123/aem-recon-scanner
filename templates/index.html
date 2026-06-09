@@ -733,6 +733,27 @@ html, body {
 }
 .phase-counter-half.aem .phase-counter-half-value { color: #69f0ae; }
 .phase-counter-half.nextjs .phase-counter-half-value { color: #00e5ff; }
+.phase-progress-detail {
+    display: flex;
+    align-items: baseline;
+    gap: 4px;
+    font-family: var(--mono);
+    font-size: 11px;
+    color: var(--text-dim);
+    margin: 2px 0 4px;
+}
+.phase-progress-detail span:first-child {
+    color: #00e5ff;
+    font-weight: 700;
+}
+.phase-progress-detail .phase-progress-detail-sep { color: var(--text-muted); }
+.phase-progress-detail-label {
+    margin-left: 4px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    font-size: 9px;
+    color: var(--text-muted);
+}
 .phase-counter-divider {
     width: 1px;
     height: 28px;
@@ -2126,7 +2147,13 @@ html, body {
                     <span class="phase-status" id="phase-2-status">WAITING</span>
                 </div>
                 <div class="phase-counter" id="phase-2-count">0</div>
-                <div class="phase-counter-label">checked &amp; alive</div>
+                <div class="phase-counter-label">alive</div>
+                <div class="phase-progress-detail" id="phase-2-progress-detail">
+                    <span id="phase-2-checked">0</span>
+                    <span class="phase-progress-detail-sep">/</span>
+                    <span id="phase-2-total">0</span>
+                    <span class="phase-progress-detail-label">checked</span>
+                </div>
                 <div class="phase-progress"><div class="phase-progress-bar" id="phase-2-bar"></div></div>
                 <div class="phase-actions">
                     <button class="phase-action-btn" onclick="event.stopPropagation();downloadPhaseTXT(2)" title="Download TXT">&#8681; TXT</button>
@@ -2787,10 +2814,19 @@ html, body {
                 if (data.phase !== undefined) {
                     const num = phaseMap[data.phase];
                     let pct = data.progress;
-                    if (pct === undefined && data.current && data.total) {
+                    // Phase 2: prefer checked/total for progress bar (real coverage)
+                    if (pct === undefined && data.checked !== undefined && data.total) {
+                        pct = Math.round((data.checked / data.total) * 100);
+                    } else if (pct === undefined && data.current && data.total) {
                         pct = Math.round((data.current / data.total) * 100);
                     }
                     if (num && pct !== undefined) $(`#phase-${num}-bar`).style.width = Math.min(pct, 100) + '%';
+                }
+                // Phase 2: update the checked / total subline
+                if (data.phase === 2 && data.checked !== undefined) {
+                    const cEl = $('#phase-2-checked'); const tEl = $('#phase-2-total');
+                    if (cEl) cEl.textContent = Number(data.checked).toLocaleString();
+                    if (tEl && data.total) tEl.textContent = Number(data.total).toLocaleString();
                 }
                 if (data.counts) {
                     Object.assign(state.counts, data.counts);

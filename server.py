@@ -2012,6 +2012,7 @@ def phase2_alive(scan: ScanState) -> None:
                 "type": "progress",
                 "phase": 2,
                 "current": current_alive,
+                "checked": current_checked,
                 "total": total_targets,
                 "message": f"Checked {current_checked}/{total_targets} ({pct}%) — {current_alive} alive",
             })
