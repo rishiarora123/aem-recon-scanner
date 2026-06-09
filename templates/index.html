@@ -260,6 +260,39 @@ html, body {
     color: var(--warning);
     opacity: 0.7;
 }
+.status-badge.paused {
+    background: rgba(0,229,255,0.1);
+    color: #00e5ff;
+    animation: statusPulse 2s ease-in-out infinite;
+}
+.status-badge.paused::before {
+    content: '';
+    width: 6px; height: 6px;
+    border-radius: 50%;
+    background: #00e5ff;
+    animation: statusPulse 2s ease-in-out infinite;
+}
+/* Internet status pill in the header */
+#internetBadge {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    padding: 3px 10px;
+    border-radius: 10px;
+    font-size: 10px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    transition: all 0.4s ease;
+    cursor: default;
+    user-select: none;
+}
+#internetBadge.up   { background: rgba(0,230,118,0.1); color: #00e676; }
+#internetBadge.down { background: rgba(0,229,255,0.1);  color: #00e5ff; animation: statusPulse 1.5s ease-in-out infinite; }
+#internetBadge .dot {
+    width: 6px; height: 6px; border-radius: 50%;
+    background: currentColor;
+}
 
 /* Table cell styles */
 .cell-domain {
@@ -298,7 +331,7 @@ html, body {
     color: var(--text-dim);
     text-transform: capitalize;
 }
-.cell-actions { text-align: center; width: 50px; }
+.cell-actions { text-align: center; white-space: nowrap; min-width: 90px; }
 .btn-delete-scan {
     padding: 4px 10px;
     background: transparent;
@@ -315,6 +348,22 @@ html, body {
 .btn-delete-scan:hover {
     background: rgba(233,69,96,0.12);
     border-color: var(--critical);
+}
+.btn-resume-scan {
+    padding: 4px 10px;
+    background: rgba(0,229,255,0.08);
+    border: 1px solid rgba(0,229,255,0.4);
+    color: #00e5ff;
+    border-radius: 4px;
+    font-size: 11px;
+    font-weight: 700;
+    cursor: pointer;
+    transition: all var(--transition);
+    margin-right: 4px;
+}
+.btn-resume-scan:hover {
+    background: rgba(0,229,255,0.18);
+    border-color: #00e5ff;
 }
 .dash-empty {
     display: flex;
@@ -902,6 +951,8 @@ html, body {
 .feed-entry.skipped .feed-msg { color: var(--text-muted); }
 .feed-entry.info .feed-icon { color: var(--text-dim); }
 .feed-entry.info .feed-msg { color: var(--text-dim); }
+.feed-entry.warn .feed-icon { color: #00e5ff; }
+.feed-entry.warn .feed-msg  { color: #00e5ff; font-weight: 600; }
 
 /* Right: Results */
 .results-panel {
@@ -932,6 +983,8 @@ html, body {
 }
 .tab-btn:hover { color: var(--text); background: rgba(255,255,255,0.02); }
 .tab-btn.active { color: #fff; border-bottom-color: var(--critical); }
+#tabNextjs.active { border-bottom-color: #00e5ff; }
+#tabNextjs.active .tab-count { background: #00e5ff; color: #000; }
 .tab-btn .tab-count {
     display: inline-block;
     min-width: 18px;
@@ -1047,6 +1100,180 @@ html, body {
     word-break: break-all;
 }
 .aem-detail.open { display: block; }
+
+/* Next.js Detection Card */
+.nextjs-card {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-left: 3px solid #00e5ff;
+    border-radius: var(--radius);
+    padding: 12px 16px;
+    margin-bottom: 8px;
+    animation: feedFadeIn 0.3s ease;
+    transition: background var(--transition);
+}
+.nextjs-card:hover { background: var(--bg-card-hover); }
+.nextjs-card-header {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-bottom: 6px;
+}
+.nextjs-card-host {
+    font-family: var(--mono);
+    font-size: 13px;
+    font-weight: 700;
+    color: #00e5ff;
+    flex: 1;
+}
+.nextjs-version-badge {
+    padding: 2px 10px;
+    background: rgba(0,229,255,0.12);
+    border: 1px solid rgba(0,229,255,0.35);
+    border-radius: 10px;
+    font-size: 11px;
+    font-weight: 700;
+    color: #00e5ff;
+    font-family: var(--mono);
+}
+.nextjs-version-badge.unknown {
+    background: rgba(255,171,0,0.1);
+    border-color: rgba(255,171,0,0.3);
+    color: var(--warning);
+}
+.nextjs-version-badge.inferred {
+    background: rgba(255,167,38,0.1);
+    border-color: rgba(255,167,38,0.35);
+    color: #ffb74d;
+    font-style: italic;
+}
+.nextjs-cve-list {
+    margin-top: 6px;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px;
+}
+.nextjs-cve-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 2px 8px;
+    border-radius: 8px;
+    font-size: 10px;
+    font-weight: 700;
+    font-family: var(--mono);
+    cursor: pointer;
+    text-decoration: none;
+    transition: filter 0.15s;
+}
+.nextjs-cve-badge:hover { filter: brightness(1.25); }
+.nextjs-cve-badge.CRITICAL {
+    background: rgba(244,67,54,0.15);
+    border: 1px solid rgba(244,67,54,0.4);
+    color: #ef5350;
+}
+.nextjs-cve-badge.HIGH {
+    background: rgba(255,152,0,0.12);
+    border: 1px solid rgba(255,152,0,0.4);
+    color: #ffa726;
+}
+.nextjs-cve-badge.MEDIUM {
+    background: rgba(255,235,59,0.1);
+    border: 1px solid rgba(255,235,59,0.3);
+    color: #ffee58;
+}
+.nextjs-cve-badge.possible {
+    opacity: 0.65;
+    border-style: dashed;
+}
+.nextjs-nuclei-link {
+    display: inline-flex;
+    align-items: center;
+    gap: 3px;
+    font-size: 10px;
+    color: #69f0ae;
+    text-decoration: none;
+    padding: 1px 5px;
+    border-radius: 4px;
+    background: rgba(105,240,174,0.06);
+    border: 1px solid rgba(105,240,174,0.2);
+}
+.nextjs-nuclei-link:hover { background: rgba(105,240,174,0.14); }
+.nextjs-router-badge {
+    padding: 2px 8px;
+    background: rgba(105,240,174,0.1);
+    border-radius: 8px;
+    font-size: 10px;
+    font-weight: 600;
+    color: #69f0ae;
+    text-transform: uppercase;
+}
+.nextjs-card-evidence {
+    font-size: 11px;
+    color: var(--text-muted);
+    margin-top: 4px;
+}
+.nextjs-card-evidence span {
+    display: inline-block;
+    margin-right: 8px;
+    margin-bottom: 2px;
+    padding: 1px 7px;
+    background: rgba(255,255,255,0.04);
+    border-radius: 4px;
+    font-family: var(--mono);
+    font-size: 10px;
+}
+/* Standalone Next.js checker card */
+.nextjs-checker-card {
+    background: var(--bg-card);
+    border: 1px solid rgba(0,229,255,0.2);
+    border-radius: var(--radius);
+    padding: 14px 16px;
+    margin-bottom: 16px;
+}
+.nextjs-checker-title {
+    font-size: 11px;
+    font-weight: 700;
+    color: #00e5ff;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    margin-bottom: 10px;
+}
+.nextjs-checker-row {
+    display: flex;
+    gap: 8px;
+}
+.nextjs-checker-input {
+    flex: 1;
+    background: rgba(255,255,255,0.04);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 7px 12px;
+    color: var(--text);
+    font-family: var(--mono);
+    font-size: 12px;
+    outline: none;
+}
+.nextjs-checker-input:focus { border-color: #00e5ff; }
+.nextjs-checker-btn {
+    padding: 7px 16px;
+    background: rgba(0,229,255,0.1);
+    border: 1px solid rgba(0,229,255,0.4);
+    border-radius: 6px;
+    color: #00e5ff;
+    font-size: 12px;
+    font-weight: 700;
+    cursor: pointer;
+    transition: background var(--transition);
+    white-space: nowrap;
+}
+.nextjs-checker-btn:hover { background: rgba(0,229,255,0.2); }
+.nextjs-checker-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+#nextjsCheckerResult {
+    margin-top: 10px;
+    font-size: 12px;
+    font-family: var(--mono);
+}
 
 /* Vulnerability Card */
 .vuln-card {
@@ -1542,6 +1769,11 @@ html, body {
             <button class="btn-back-dash" id="backToDash" style="display:none" onclick="showDashboard()">&#9664; Dashboard</button>
             <div class="c99-badge" id="c99Badge" title="C99.nl subdomain source mode" style="display:none"></div>
 
+            <!-- Internet Status Badge -->
+            <div id="internetBadge" class="up" title="Internet connectivity status">
+                <span class="dot"></span><span id="internetBadgeText">Online</span>
+            </div>
+
             <!-- Proxy Manager -->
             <div class="proxy-panel-wrap" id="proxyPanelWrap">
                 <button class="btn-proxy" id="proxyBtn" onclick="toggleProxyPanel()">&#9654; Proxies <span id="proxyCount">0</span></button>
@@ -1742,6 +1974,9 @@ html, body {
                     <button class="tab-btn" data-tab="vulns" id="tabVulns">
                         Vulnerabilities <span class="tab-count" id="tabVulnsCount">0</span>
                     </button>
+                    <button class="tab-btn" data-tab="nextjs" id="tabNextjs">
+                        Next.js <span class="tab-count" id="tabNextjsCount">0</span>
+                    </button>
                     <button class="tab-btn" data-tab="hosts" id="tabHosts">
                         All Hosts <span class="tab-count" id="tabHostsCount">0</span>
                     </button>
@@ -1756,6 +1991,30 @@ html, body {
                     <div class="empty-state" id="vulnEmpty">
                         <div class="empty-state-icon">&Delta;</div>
                         <div>No vulnerabilities found yet</div>
+                    </div>
+                </div>
+                <div class="tab-content" id="panelNextjs">
+                    <!-- Standalone single-URL checker -->
+                    <div class="nextjs-checker-card">
+                        <div class="nextjs-checker-title">&#9830; Quick Next.js Check</div>
+                        <div class="nextjs-checker-row">
+                            <input type="text" class="nextjs-checker-input" id="nextjsCheckerUrl"
+                                placeholder="https://example.com" autocomplete="off" spellcheck="false" />
+                            <button class="nextjs-checker-btn" id="nextjsCheckerBtn" onclick="runNextjsCheck()">
+                                &#9654; Check
+                            </button>
+                        </div>
+                        <div id="nextjsCheckerResult"></div>
+                    </div>
+                    <!-- Scan results -->
+                    <div id="nextjsResultsList">
+                        <div class="empty-state" id="nextjsEmpty">
+                            <div class="empty-state-icon">&#9830;</div>
+                            <div>No Next.js sites detected yet</div>
+                            <div style="margin-top:10px;font-size:12px;color:var(--text-muted)">
+                                Detected automatically during Phase 3 — or use the checker above
+                            </div>
+                        </div>
                     </div>
                 </div>
                 <div class="tab-content" id="panelHosts">
@@ -1973,6 +2232,159 @@ html, body {
         panel.appendChild(card);
     }
 
+    // ── Next.js Detection Card ──
+    function addNextjsHost(data) {
+        const list = $('#nextjsResultsList');
+        const empty = $('#nextjsEmpty');
+        if (empty) empty.remove();
+
+        // Update counter
+        state.counts.nextjs = (state.counts.nextjs || 0) + 1;
+        $('#tabNextjsCount').textContent = state.counts.nextjs;
+
+        const card = document.createElement('div');
+        card.className = 'nextjs-card';
+        const ver = data.version || null;
+        const router = data.router;
+        const methods = (data.methods || []).slice(0, 4);
+        const evidence = (data.evidence || []).slice(0, 6);
+        const cves = data.cves || [];
+
+        const verBadge = ver
+            ? (data.version_inferred
+                ? '<span class="nextjs-version-badge inferred" title="Inferred from React ' + escapeHtml(data.react_version || '') + ' — version strings stripped in production build">' + escapeHtml(ver) + ' ≈</span>'
+                : '<span class="nextjs-version-badge">v' + escapeHtml(ver) + '</span>')
+            : '<span class="nextjs-version-badge unknown">version unknown</span>';
+        const reactHint = data.version_inferred && data.react_version
+            ? '<span style="font-size:10px;color:var(--text-muted);font-family:var(--mono)">React ' + escapeHtml(data.react_version) + '</span>'
+            : '';
+
+        // Build CVE badges
+        const cveBadges = cves.length > 0
+            ? '<div class="nextjs-cve-list">' +
+                cves.map(c => {
+                    const possibleCls = c.possibly_affected ? ' possible' : '';
+                    const possibleTitle = c.possibly_affected ? ' (possibly affected — version inferred)' : '';
+                    const nucleiBtn = c.nuclei_template
+                        ? ' <a class="nextjs-nuclei-link" href="' + escapeHtml(c.nuclei_repo + '/blob/main/' + c.nuclei_template) + '" target="_blank" rel="noopener">nuclei ↗</a>'
+                        : '';
+                    return '<a class="nextjs-cve-badge ' + c.severity + possibleCls + '" href="' + escapeHtml(c.references[0] || '#') + '" target="_blank" rel="noopener" title="' + escapeHtml(c.title + possibleTitle) + '">' +
+                        escapeHtml(c.cve) + ' ' + c.severity + ' ' + (c.cvss || '') +
+                    '</a>' + nucleiBtn;
+                }).join(' ') +
+              '</div>'
+            : '';
+
+        card.innerHTML =
+            '<div class="nextjs-card-header">' +
+                '<span class="nextjs-card-host">' + escapeHtml(data.host || '') + '</span>' +
+                verBadge +
+                (router ? '<span class="nextjs-router-badge">' + escapeHtml(router) + ' router</span>' : '') +
+                reactHint +
+                (data.build_id
+                    ? '<span style="font-size:10px;color:var(--text-muted);font-family:var(--mono)">build: ' + escapeHtml(data.build_id.slice(0,12)) + '…</span>'
+                    : '') +
+            '</div>' +
+            cveBadges +
+            '<div class="nextjs-card-evidence">' +
+                methods.map(m => '<span>' + escapeHtml(m) + '</span>').join('') +
+            '</div>' +
+            (evidence.length > methods.length
+                ? '<div class="nextjs-card-evidence" style="margin-top:3px">' +
+                    evidence.map(e => '<span>' + escapeHtml(e) + '</span>').join('') +
+                  '</div>'
+                : '');
+        list.appendChild(card);
+    }
+
+    // ── Standalone Next.js checker ──
+    window.runNextjsCheck = async function() {
+        const input = document.getElementById('nextjsCheckerUrl');
+        const btn   = document.getElementById('nextjsCheckerBtn');
+        const result = document.getElementById('nextjsCheckerResult');
+        const url = input.value.trim();
+        if (!url) { result.innerHTML = '<span style="color:var(--warning)">Enter a URL first</span>'; return; }
+
+        btn.disabled = true;
+        btn.textContent = '…';
+        result.innerHTML = '<span style="color:var(--text-muted)">Checking…</span>';
+
+        try {
+            const resp = await fetch('/api/detect-nextjs', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ url, timeout: 15 }),
+            });
+            const d = await resp.json();
+
+            if (!d.detected) {
+                result.innerHTML =
+                    '<span style="color:var(--text-muted)">&#10005; Next.js not detected on </span>' +
+                    '<span style="color:var(--text);font-family:var(--mono)">' + escapeHtml(d.url) + '</span>';
+            } else {
+                const ver = d.version
+                    ? (d.version_inferred
+                        ? '<span class="nextjs-version-badge inferred" title="Inferred from React ' + escapeHtml(d.react_version || '') + ' — production build strips version strings">' + escapeHtml(d.version) + ' ≈</span>'
+                        : '<span class="nextjs-version-badge">v' + escapeHtml(d.version) + '</span>')
+                    : '<span class="nextjs-version-badge unknown">version unknown</span>';
+                const router = d.router ? '<span class="nextjs-router-badge" style="display:inline-block;padding:2px 8px">' + escapeHtml(d.router) + ' router</span>' : '';
+                const bid = d.build_id ? '<span style="font-size:11px;color:var(--text-muted);font-family:var(--mono)">buildId: ' + escapeHtml(d.build_id) + '</span>' : '';
+                const reactInfo = d.react_version
+                    ? '<div style="font-size:10px;color:var(--text-muted);font-family:var(--mono);margin-bottom:4px">React ' + escapeHtml(d.react_version) + (d.version_inferred ? ' (version stripped — inferred from React major)' : '') + '</div>'
+                    : '';
+                const inferredNote = d.version_inferred
+                    ? '<div style="font-size:10px;color:#ffb74d;margin-bottom:6px;padding:3px 8px;background:rgba(255,167,38,0.08);border-radius:4px;border:1px solid rgba(255,167,38,0.2)">⚠ Exact version unavailable — production build strips version strings. Range inferred from React version.</div>'
+                    : '';
+                const methods = (d.methods || []).map(m =>
+                    '<span style="display:inline-block;margin:2px 4px 2px 0;padding:1px 7px;background:rgba(0,229,255,0.06);border-radius:4px;font-size:10px;font-family:var(--mono)">' + escapeHtml(m) + '</span>'
+                ).join('');
+                const ev = (d.evidence || []).map(e =>
+                    '<div style="margin:1px 0;color:var(--text-muted);font-size:10px;font-family:var(--mono)">• ' + escapeHtml(e) + '</div>'
+                ).join('');
+                // CVE list for standalone checker
+                const cveList = (d.cves || []).length > 0
+                    ? '<div style="margin:8px 0 4px 0;font-size:10px;color:var(--text-muted);font-weight:600">VULNERABILITIES:</div>' +
+                      '<div class="nextjs-cve-list" style="margin-bottom:6px">' +
+                        (d.cves || []).map(c => {
+                            const possibleCls = c.possibly_affected ? ' possible' : '';
+                            const possibleTitle = c.possibly_affected ? ' (possibly affected — version inferred)' : '';
+                            const nucleiBtn = c.nuclei_template
+                                ? ' <a class="nextjs-nuclei-link" href="' + escapeHtml(c.nuclei_repo + '/blob/main/' + c.nuclei_template) + '" target="_blank" rel="noopener">nuclei ↗</a>'
+                                : '';
+                            return '<a class="nextjs-cve-badge ' + c.severity + possibleCls + '" href="' + escapeHtml((c.references||['#'])[0]) + '" target="_blank" rel="noopener" title="' + escapeHtml(c.title + possibleTitle) + '">' +
+                                escapeHtml(c.cve) + ' ' + c.severity + ' ' + (c.cvss || '') +
+                            '</a>' + nucleiBtn;
+                        }).join(' ') +
+                      '</div>'
+                    : (d.version && !d.version_inferred ? '<div style="margin:6px 0;font-size:10px;color:#69f0ae">✓ No known CVEs for this version</div>' : '');
+                result.innerHTML =
+                    '<div style="display:flex;align-items:center;gap:8px;margin-bottom:8px">' +
+                        '<span style="color:#00e5ff;font-weight:700">&#10003; Next.js detected</span>' +
+                        ver + router +
+                    '</div>' +
+                    inferredNote +
+                    (bid ? '<div style="margin-bottom:6px">' + bid + '</div>' : '') +
+                    reactInfo +
+                    cveList +
+                    '<div style="margin-bottom:4px">' + methods + '</div>' +
+                    ev;
+            }
+        } catch (e) {
+            result.innerHTML = '<span style="color:var(--critical)">Error: ' + escapeHtml(e.message) + '</span>';
+        } finally {
+            btn.disabled = false;
+            btn.textContent = '▶ Check';
+        }
+    };
+
+    // Enter key on checker input
+    document.addEventListener('DOMContentLoaded', function() {
+        const inp = document.getElementById('nextjsCheckerUrl');
+        if (inp) inp.addEventListener('keydown', function(e) {
+            if (e.key === 'Enter') runNextjsCheck();
+        });
+    });
+
     // ── Vulnerability Card ──
     function addVulnerability(data) {
         const empty = $('#vulnEmpty');
@@ -2154,10 +2566,60 @@ html, body {
                 addFeedEntry(data.level || 'info', data.message || '');
                 break;
 
+            case 'nextjs_detected':
+                addNextjsHost(data);
+                addFeedEntry('info',
+                    '&#9830; Next.js' +
+                    (data.version ? ' v' + data.version : '') +
+                    ' detected: ' + (data.host || '') +
+                    (data.router ? ' [' + data.router + ' router]' : '')
+                );
+                break;
+
+            case 'internet_pause':
+                setInternetBadge(false);
+                addFeedEntry('warn', data.message || '⏸ Internet lost — scan paused');
+                // Update scan status badge in real time
+                if (state.scanId) {
+                    const sbEl = document.querySelector('#scanStatusBadge');
+                    if (sbEl) { sbEl.className = 'status-badge paused'; sbEl.textContent = '⏸ Paused'; }
+                }
+                break;
+
+            case 'internet_resume':
+                setInternetBadge(true);
+                addFeedEntry('alive', data.message || '▶ Internet restored — scan resuming');
+                if (state.scanId) {
+                    const sbEl = document.querySelector('#scanStatusBadge');
+                    if (sbEl) { sbEl.className = 'status-badge running'; sbEl.textContent = '◉ Running'; }
+                }
+                break;
+
             default:
                 addFeedEntry('info', JSON.stringify(data));
         }
     }
+
+    // ── Internet badge helper ──
+    function setInternetBadge(up) {
+        const badge = document.getElementById('internetBadge');
+        const text  = document.getElementById('internetBadgeText');
+        if (!badge || !text) return;
+        badge.className = up ? 'up' : 'down';
+        text.textContent = up ? 'Online' : 'Offline — retrying…';
+    }
+
+    // Poll internet status from server every 15s so the badge stays accurate
+    // even when no scan is running
+    setInterval(async function() {
+        try {
+            const r = await fetch('/api/internet', { signal: AbortSignal.timeout(4000) });
+            if (r.ok) {
+                const d = await r.json();
+                setInternetBadge(d.up);
+            }
+        } catch (_) { /* network error — badge stays as-is */ }
+    }, 15000);
 
     // ── Rebuild host table (after AEM update) ──
     function rebuildHostTable() {
@@ -2224,14 +2686,17 @@ html, body {
     // ── Phase Detail Modal (enhanced with download/upload/continue) ──
     function showPhaseDetail(phaseNum) {
         const pd = getPhaseData(phaseNum);
-        const count = pd.rawItems.length;
+        // Use actual count from state.counts for phases 1&2 (may be larger than rawItems when list is server-side)
+        const count = phaseNum === 1 ? state.counts.subdomains
+                    : phaseNum === 2 ? state.counts.alive
+                    : pd.rawItems.length;
         const nextPhase = phaseNum + 1;
         const canContinue = nextPhase <= 4;
 
         // Header with title + action buttons
         let headerHtml =
             '<div class="phase-modal-header">' +
-                '<span class="phase-modal-title">' + pd.title + ' (' + count + ')</span>' +
+                '<span class="phase-modal-title">' + pd.title + ' (' + count.toLocaleString() + ')</span>' +
                 '<div class="phase-modal-actions">' +
                     '<button class="phase-modal-btn btn-download" onclick="downloadPhaseTXT(' + phaseNum + ')" title="Download as TXT">&#8681; Download TXT</button>' +
                     (canContinue
@@ -2254,11 +2719,21 @@ html, body {
         }
 
         // Count bar
-        let countHtml = '<div class="phase-item-count">' + count + ' items</div>';
+        let countHtml = '<div class="phase-item-count">' + count.toLocaleString() + ' items</div>';
 
-        // Item list
-        const listHtml = (count === 0 ? ['<em style="color:var(--text-muted)">No data yet</em>'] : pd.items)
-            .map(i => '<div class="phase-item">' + i + '</div>').join('');
+        // Item list — for large server-side lists show a note instead of empty list
+        let listHtml;
+        const isLargeServerList = (phaseNum === 1 && state._largeSubdomains) ||
+                                   (phaseNum === 2 && state._largeAlive);
+        if (isLargeServerList) {
+            listHtml = '<div class="phase-item" style="color:var(--text-muted);font-style:italic">' +
+                '&#8681; ' + count.toLocaleString() + ' entries — too large to display inline. ' +
+                'Use the Download TXT button to stream the full list from the server.' +
+                '</div>';
+        } else {
+            listHtml = (pd.rawItems.length === 0 ? ['<em style="color:var(--text-muted)">No data yet</em>'] : pd.items)
+                .map(i => '<div class="phase-item">' + i + '</div>').join('');
+        }
 
         modalStats.innerHTML =
             '<div style="grid-column:1/-1;text-align:left;background:#0a0e17;border-radius:8px;overflow:hidden">' +
@@ -2482,6 +2957,26 @@ html, body {
     // ── Download phase data as TXT ──
     window.downloadPhaseTXT = function(phaseNum) {
         const pd = getPhaseData(phaseNum);
+        const domain = state.domain || 'scan';
+        const scanId = state.scanId;
+
+        // For large server-side lists, stream directly from the server
+        if (phaseNum === 1 && state._largeSubdomains && scanId) {
+            const a = document.createElement('a');
+            a.href = '/api/scan/' + scanId + '/download/subdomains';
+            a.download = 'aem-recon-' + domain + '-subdomains.txt';
+            a.click();
+            return;
+        }
+        if (phaseNum === 2 && state._largeAlive && scanId) {
+            const a = document.createElement('a');
+            a.href = '/api/scan/' + scanId + '/download/alive';
+            a.download = 'aem-recon-' + domain + '-alive.txt';
+            a.click();
+            return;
+        }
+
+        // Regular in-memory download (small lists)
         if (pd.rawItems.length === 0) {
             showToast('No data to download for ' + pd.title);
             return;
@@ -2491,7 +2986,6 @@ html, body {
         const url = URL.createObjectURL(blob);
         const a = document.createElement('a');
         a.href = url;
-        const domain = state.domain || 'scan';
         a.download = 'aem-recon-' + domain + '-phase' + phaseNum + '-' + pd.title.toLowerCase().replace(/\s+/g, '-') + '.txt';
         a.click();
         URL.revokeObjectURL(url);
@@ -2591,7 +3085,7 @@ html, body {
         modalOverlay.classList.remove('open');
 
         // Reset state but keep previous data
-        state.counts = { subdomains: 0, alive: 0, aem: 0, vulns: 0 };
+        state.counts = { subdomains: 0, alive: 0, aem: 0, vulns: 0, nextjs: 0 };
         state.aemHosts = [];
         state.vulnerabilities = [];
         state.allHosts = [];
@@ -2672,16 +3166,21 @@ html, body {
         state.domain = domain;
 
         // Reset state
-        state.counts = { subdomains: 0, alive: 0, aem: 0, vulns: 0 };
+        state.counts = { subdomains: 0, alive: 0, aem: 0, vulns: 0, nextjs: 0 };
         state.aemHosts = [];
         state.vulnerabilities = [];
         state.allHosts = [];
         state.subdomainsList = [];
         state.aliveList = [];
+        state._largeSubdomains = false;
+        state._largeAlive = false;
         state.feedEntries = 0;
         feedContent.innerHTML = '';
-        $('#panelAem').innerHTML = '<div class="empty-state" id="aemEmpty"><div class="empty-state-icon">&loz;</div><div>No AEM hosts detected yet</div></div>';
-        $('#panelVulns').innerHTML = '<div class="empty-state" id="vulnEmpty"><div class="empty-state-icon">&Delta;</div><div>No vulnerabilities found yet</div></div>';
+        $('#panelAem').innerHTML = '<div class="empty-state" id="aemEmpty"><div class="empty-state-icon">&loz;</div><div>Loading...</div></div>';
+        $('#panelVulns').innerHTML = '<div class="empty-state" id="vulnEmpty"><div class="empty-state-icon">&Delta;</div><div>Loading...</div></div>';
+        const njList = $('#nextjsResultsList');
+        if (njList) njList.innerHTML = '<div class="empty-state" id="nextjsEmpty"><div class="empty-state-icon">&#9830;</div><div>No Next.js sites detected yet</div></div>';
+        $('#tabNextjsCount').textContent = '0';
         $('#hostsBody').innerHTML = '';
         updateCounters();
         [1, 2, 3, 4].forEach(n => {
@@ -2870,7 +3369,7 @@ html, body {
             document.querySelectorAll('.tab-content').forEach(p => p.classList.remove('active'));
             btn.classList.add('active');
             const tabName = btn.dataset.tab;
-            const panelMap = { aem: 'panelAem', vulns: 'panelVulns', hosts: 'panelHosts' };
+            const panelMap = { aem: 'panelAem', vulns: 'panelVulns', nextjs: 'panelNextjs', hosts: 'panelHosts' };
             $('#' + panelMap[tabName]).classList.add('active');
         });
     });
@@ -2987,7 +3486,7 @@ html, body {
         state.scanId = null;
         state.scanning = false;
         state.domain = '';
-        state.counts = { subdomains: 0, alive: 0, aem: 0, vulns: 0 };
+        state.counts = { subdomains: 0, alive: 0, aem: 0, vulns: 0, nextjs: 0 };
         state.aemHosts = [];
         state.vulnerabilities = [];
         state.allHosts = [];
@@ -2998,6 +3497,8 @@ html, body {
         state._uploadedHostsId = null;
         state._uploadTargetPhase = null;
         state._uploadedHostsCount = null;
+        state._largeSubdomains = false;
+        state._largeAlive = false;
         // Reset UI
         domainInput.value = '';
         feedContent.innerHTML = '';
@@ -3063,11 +3564,13 @@ html, body {
                                 s.status === 'complete' ? 'complete' :
                                 s.status === 'cancelled' ? 'cancelled' :
                                 s.status === 'error' ? 'error' :
+                                s.status === 'paused' ? 'paused' :
                                 s.status === 'interrupted' ? 'interrupted' : 'pending';
             const statusText = s.status === 'running' ? 'Scanning' :
                                s.status === 'complete' ? 'Complete' :
                                s.status === 'cancelled' ? 'Cancelled' :
                                s.status === 'error' ? 'Error' :
+                               s.status === 'paused' ? '⏸ Paused' :
                                s.status === 'interrupted' ? '⚡ Interrupted' :
                                s.status.charAt(0).toUpperCase() + s.status.slice(1);
 
@@ -3087,7 +3590,12 @@ html, body {
                 '<td class="' + vulnClass + '">' + (s.vulnerabilities || 0) + '</td>' +
                 '<td class="cell-time">' + formatTime(s.started_at) + '</td>' +
                 '<td class="cell-elapsed">' + formatDuration(s.elapsed) + '</td>' +
-                '<td class="cell-actions"><button class="btn-delete-scan" onclick="event.stopPropagation(); deleteScan(\'' + escapeHtml(s.scan_id) + '\', this)" title="Delete scan">&#10005;</button></td>' +
+                '<td class="cell-actions">' +
+                (s.resumable
+                    ? '<button class="btn-resume-scan" onclick="event.stopPropagation(); resumeScan(\'' + escapeHtml(s.scan_id) + '\', this)" title="Resume from Phase ' + (s.resume_phase || '?') + '">&#9654; P' + (s.resume_phase || '?') + '</button>'
+                    : '') +
+                '<button class="btn-delete-scan" onclick="event.stopPropagation(); deleteScan(\'' + escapeHtml(s.scan_id) + '\', this)" title="Delete scan">&#10005;</button>' +
+                '</td>' +
             '</tr>';
         }).join('');
 
@@ -3131,18 +3639,41 @@ html, body {
         }
     };
 
+    // Resume an interrupted / paused scan
+    window.resumeScan = async function(scanId, btn) {
+        const origText = btn ? btn.textContent : '';
+        if (btn) { btn.textContent = '…'; btn.disabled = true; }
+        try {
+            const resp = await fetch('/api/scan/' + scanId + '/resume', { method: 'POST' });
+            const data = await resp.json();
+            if (!resp.ok) {
+                showToast((data.error || 'Could not resume scan'), 'error');
+                if (btn) { btn.textContent = origText; btn.disabled = false; }
+                return;
+            }
+            showToast('▶ Resuming from Phase ' + (data.resume_phase || '?'));
+            // Open the scan live view so the user can watch progress
+            openScan(scanId);
+        } catch (e) {
+            showToast('Error: ' + e.message, 'error');
+            if (btn) { btn.textContent = origText; btn.disabled = false; }
+        }
+    };
+
     // Open a specific scan
     window.openScan = async function(scanId) {
         // Switch to scanner mode
         showScanner();
 
         // Reset UI state
-        state.counts = { subdomains: 0, alive: 0, aem: 0, vulns: 0 };
+        state.counts = { subdomains: 0, alive: 0, aem: 0, vulns: 0, nextjs: 0 };
         state.aemHosts = [];
         state.vulnerabilities = [];
         state.allHosts = [];
         state.subdomainsList = [];
         state.aliveList = [];
+        state._largeSubdomains = false;
+        state._largeAlive = false;
         state.feedEntries = 0;
         feedContent.innerHTML = '';
         $('#panelAem').innerHTML = '<div class="empty-state" id="aemEmpty"><div class="empty-state-icon">&loz;</div><div>Loading...</div></div>';
@@ -3166,22 +3697,41 @@ html, body {
             domainInput.value = state.domain;
 
             // Populate subdomains
-            if (data.subdomains && data.subdomains.length > 0) {
-                state.subdomainsList = data.subdomains;
-                state.counts.subdomains = data.subdomains.length;
+            // Server returns counts always; inline arrays only when ≤ 5,000 entries
+            const subCount  = data.subdomains_count != null ? data.subdomains_count : (data.subdomains ? data.subdomains.length : 0);
+            const aliveCount = data.alive_count     != null ? data.alive_count      : (data.alive_hosts ? data.alive_hosts.length : 0);
+
+            if (subCount > 0) {
+                state.counts.subdomains = subCount;
                 setPhase('subdomains', 'complete', 100);
-                addFeedEntry('info', 'Subdomains: ' + data.subdomains.length + ' found');
+                if (data.subdomains && data.subdomains.length > 0) {
+                    state.subdomainsList = data.subdomains;   // inline list (small scan)
+                }
+                // _largeSubdomains flag tells downloadPhaseTXT to use streaming endpoint
+                state._largeSubdomains = (data.subdomains && data.subdomains.length === 0 && subCount > 0);
+                addFeedEntry('info', 'Subdomains: ' + subCount.toLocaleString() + ' found' + (state._largeSubdomains ? ' (large — download via server)' : ''));
             }
 
             // Populate alive hosts
-            if (data.alive_hosts && data.alive_hosts.length > 0) {
-                state.aliveList = data.alive_hosts;
-                state.counts.alive = data.alive_hosts.length;
+            if (aliveCount > 0) {
+                state.counts.alive = aliveCount;
                 setPhase('alive', 'complete', 100);
-                data.alive_hosts.forEach(function(h) {
-                    state.allHosts.push({ host: h, status_code: 200, is_aem: false });
-                });
-                addFeedEntry('info', 'Alive hosts: ' + data.alive_hosts.length);
+                if (data.alive_hosts && data.alive_hosts.length > 0) {
+                    state.aliveList = data.alive_hosts;
+                    data.alive_hosts.forEach(function(h) {
+                        state.allHosts.push({ host: h, status_code: 200, is_aem: false });
+                    });
+                }
+                state._largeAlive = (data.alive_hosts && data.alive_hosts.length === 0 && aliveCount > 0);
+                addFeedEntry('info', 'Alive hosts: ' + aliveCount.toLocaleString() + (state._largeAlive ? ' (large — download via server)' : ''));
+            }
+
+            // Populate Next.js hosts
+            if (data.nextjs_hosts && Object.keys(data.nextjs_hosts).length > 0) {
+                for (const [host, info] of Object.entries(data.nextjs_hosts)) {
+                    addNextjsHost({ host, ...info });
+                }
+                addFeedEntry('info', 'Next.js: ' + Object.keys(data.nextjs_hosts).length + ' site(s) detected');
             }
 
             // Populate AEM hosts
@@ -3223,8 +3773,40 @@ html, body {
                 connectWebSocket(scanId);
                 addFeedEntry('info', 'Scan is still running — connected to live feed');
             } else {
-                addFeedEntry('info', 'Scan ' + scanId + ' — Status: ' + data.status);
+                const statusLabel = {
+                    complete: 'Complete',
+                    interrupted: '⚡ Interrupted',
+                    paused: '⏸ Paused',
+                    error: 'Error',
+                    cancelled: 'Cancelled',
+                }[data.status] || data.status;
+                addFeedEntry('info', 'Scan ' + scanId + ' — ' + statusLabel);
                 exportBtn.disabled = (state.aemHosts.length === 0 && state.vulnerabilities.length === 0);
+
+                // Show Resume button for interrupted / paused scans
+                if (data.status === 'interrupted' || data.status === 'paused' || data.status === 'error') {
+                    const resumePhase = data.resume_phase || '?';
+                    addFeedEntry('warn',
+                        '⏸ Scan was ' + data.status + '. '
+                        + (data.paused_reason === 'internet_down' ? 'Lost internet connection.' : '')
+                    );
+                    // Inject a resume button into the feed
+                    const resumeDiv = document.createElement('div');
+                    resumeDiv.style.cssText = 'padding:10px 16px;display:flex;align-items:center;gap:12px';
+                    resumeDiv.innerHTML =
+                        '<button class="btn-resume-scan" style="padding:7px 18px;font-size:13px" '
+                        + 'onclick="resumeScan(\'' + escapeHtml(scanId) + '\', this)">'
+                        + '&#9654; Resume from Phase ' + resumePhase
+                        + '</button>'
+                        + '<span style="color:var(--text-muted);font-size:12px">'
+                        + 'picks up where it left off &mdash; '
+                        + (data.progress ? data.progress.subdomains_count.toLocaleString() + ' subs, ' : '')
+                        + (state.counts.alive ? state.counts.alive.toLocaleString() + ' alive, ' : '')
+                        + (state.counts.aem ? state.counts.aem + ' AEM' : 'nothing else yet')
+                        + '</span>';
+                    feedContent.appendChild(resumeDiv);
+                    if (state.autoScroll) feedContent.scrollTop = feedContent.scrollHeight;
+                }
 
                 // Mark appropriate phases
                 const phaseOrder = ['subdomain_enumeration', 'alive_check', 'aem_detection', 'bypass_scan', 'complete'];
