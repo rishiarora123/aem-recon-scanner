@@ -1936,6 +1936,17 @@ def phase2_alive(scan: ScanState) -> None:
     _send_ws(scan, {"type": "log", "level": "info",
                     "message": f"Alive check: {total_targets} targets → {total_batches} batches, {MAX_CONCURRENT_BATCHES} parallel, {HTTPX_THREADS} threads each"})
 
+    # ── Emit initial progress so the UI shows "0 / 925,400 CHECKED" right away ──
+    # The first batch can take 30-90s; without this the user sees "0 / 0".
+    _send_ws(scan, {
+        "type": "progress",
+        "phase": 2,
+        "current": 0,
+        "checked": resume_from,            # already-checked from a prior run
+        "total": resume_from + total_targets,  # full target count incl. resumed
+        "message": f"Starting alive check on {total_targets:,} targets...",
+    })
+
     checked_count = 0           # total hosts checked so far
     alive_count = 0             # total alive found
     checked_lock = threading.Lock()
@@ -1979,6 +1990,14 @@ def phase2_alive(scan: ScanState) -> None:
             proc.stdin.write("\n".join(batch_hosts))
             proc.stdin.close()
 
+            # Per-batch progress ticker — emits an estimated "checked" count
+            # every 2s so the UI doesn't sit at the same number for the whole
+            # 30-90s batch. The estimate uses elapsed time vs the per-host
+            # timeout and is reconciled when the batch finishes.
+            batch_start = time.time()
+            last_tick = batch_start
+            BATCH_TICK_INTERVAL = 2.0
+
             for line in proc.stdout:
                 if scan.cancelled:
                     proc.kill()
@@ -2001,6 +2020,29 @@ def phase2_alive(scan: ScanState) -> None:
                         "status": "alive",
                     })
 
+                # Periodic mid-batch progress update
+                now = time.time()
+                if now - last_tick >= BATCH_TICK_INTERVAL:
+                    last_tick = now
+                    elapsed = now - batch_start
+                    # Linear estimate: how many of this batch have been probed
+                    # so far, capped to BATCH_SIZE.
+                    estimated_in_batch = min(
+                        len(batch_hosts),
+                        int(elapsed / max(HTTPX_TIMEOUT_PER_HOST, 1) * HTTPX_THREADS),
+                    )
+                    with checked_lock:
+                        snap_checked = checked_count + estimated_in_batch
+                        snap_alive = alive_count
+                    snap_total = resume_from + total_targets
+                    _send_ws(scan, {
+                        "type": "progress",
+                        "phase": 2,
+                        "current": snap_alive,
+                        "checked": snap_checked,
+                        "total": snap_total,
+                    })
+
             try:
                 proc.wait(timeout=5)
             except subprocess.TimeoutExpired:
@@ -2016,14 +2058,18 @@ def phase2_alive(scan: ScanState) -> None:
                 # checked_count is how many we've done in THIS run.
                 scan.phase2_cursor = resume_from + checked_count
 
-            pct = int(current_checked / total_targets * 100)
+            # Total includes already-checked from prior runs (resume_from);
+            # so the percentage and X/Y subline reflect the full scope.
+            full_total = resume_from + total_targets
+            full_checked = resume_from + current_checked
+            pct = int(full_checked / full_total * 100) if full_total else 0
             _send_ws(scan, {
                 "type": "progress",
                 "phase": 2,
                 "current": current_alive,
-                "checked": current_checked,
-                "total": total_targets,
-                "message": f"Checked {current_checked}/{total_targets} ({pct}%) — {current_alive} alive",
+                "checked": full_checked,
+                "total": full_total,
+                "message": f"Checked {full_checked:,}/{full_total:,} ({pct}%) — {current_alive:,} alive",
             })
             _send_ws(scan, {"type": "log", "level": "info",
                             "message": f"Batch {batch_idx+1}/{total_batches}: checked {len(batch_hosts)}, +{len(alive)} alive — total: {current_checked}/{total_targets} ({pct}%)"})
