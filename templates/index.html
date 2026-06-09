@@ -4112,6 +4112,19 @@ html, body {
                 }
                 state._largeAlive = (data.alive_hosts && data.alive_hosts.length === 0 && aliveCount > 0);
                 addFeedEntry('info', 'Alive hosts: ' + aliveCount.toLocaleString() + (state._largeAlive ? ' (large — download via server)' : ''));
+
+                // Populate the X / Y CHECKED subline on the Live Subdomains card
+                // For uploads we don't know the original total — use phase2_cursor (how many
+                // were probed) or fall back to aliveCount as a floor.
+                const cursor = data.progress?.phase2_cursor || data.phase2_cursor || 0;
+                const phase2Total = cursor || data.subdomains_count || aliveCount;
+                const phase2Checked = cursor || phase2Total;
+                const cEl = document.getElementById('phase-2-checked');
+                const tEl = document.getElementById('phase-2-total');
+                const bEl = document.getElementById('phase-2-bar');
+                if (cEl) cEl.textContent = Number(phase2Checked).toLocaleString();
+                if (tEl) tEl.textContent = Number(phase2Total).toLocaleString();
+                if (bEl && phase2Total > 0) bEl.style.width = Math.min(100, Math.round(phase2Checked / phase2Total * 100)) + '%';
             }
 
             // Populate Next.js hosts
