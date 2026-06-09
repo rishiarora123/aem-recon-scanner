@@ -3,3 +3,6 @@ uvicorn>=0.23.0
 requests>=2.31.0
 pydantic>=2.0.0
 python-multipart>=0.0.9
+# Optional: for "Deep Check (browser)" — exact version via window.next.version
+# After install run: playwright install chromium
+playwright>=1.40.0

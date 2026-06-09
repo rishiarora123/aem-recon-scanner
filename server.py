@@ -4268,11 +4268,79 @@ async def delete_scan(scan_id: str) -> JSONResponse:
     return JSONResponse({"scan_id": scan_id, "deleted": True})
 
 
+async def _detect_nextjs_via_browser(url: str, timeout_ms: int = 25_000) -> dict[str, Any]:
+    """
+    Use a headless Chromium browser to read window.next.version at runtime.
+    This is the only reliable way to get the exact version for heavily-locked
+    builds (Vercel deploy-lock, auth-walled chunks).
+
+    Requires:
+        pip install playwright
+        playwright install chromium
+
+    Returns a dict with version / build_id / react_version / router / browser_used.
+    Falls back to a safe error dict if Playwright isn't installed or the
+    browser launch fails.
+    """
+    out: dict[str, Any] = {
+        "browser_used": True,
+        "version": None,
+        "build_id": None,
+        "react_version": None,
+        "router": None,
+        "browser_error": None,
+    }
+    try:
+        from playwright.async_api import async_playwright
+    except ImportError:
+        out["browser_error"] = "playwright not installed (pip install playwright + playwright install chromium)"
+        return out
+
+    try:
+        async with async_playwright() as p:
+            browser = await p.chromium.launch(headless=True)
+            ctx = await browser.new_context(ignore_https_errors=True)
+            page = await ctx.new_page()
+            try:
+                await page.goto(url, wait_until="domcontentloaded", timeout=timeout_ms)
+                # Give Next.js bootstrap time to set window.next
+                await page.wait_for_timeout(3000)
+                # Try window.next.version, then __NEXT_DATA__ runtime, then React fallback
+                out["version"] = await page.evaluate(
+                    "() => window.next?.version || window.__NEXT_DATA__?.runtimeConfig?.nextVersion || null"
+                )
+                out["build_id"] = await page.evaluate(
+                    "() => window.next?.buildId || window.__NEXT_DATA__?.buildId || null"
+                )
+                router_kind = await page.evaluate(
+                    "() => { const r = window.next?.router; if (!r) return null; "
+                    "return r.constructor?.name === 'AppRouter' ? 'app' : 'pages'; }"
+                )
+                if router_kind:
+                    out["router"] = router_kind
+                # React via the DOM root fiber, then via the React global
+                out["react_version"] = await page.evaluate(
+                    "() => { try { return window.React?.version || "
+                    "(window.__REACT_DEVTOOLS_GLOBAL_HOOK__?.renderers?.values?.()?.next?.()?.value?.version) || null; } "
+                    "catch(e) { return null; } }"
+                )
+            finally:
+                await ctx.close()
+                await browser.close()
+    except Exception as e:
+        out["browser_error"] = f"{type(e).__name__}: {e}"
+    return out
+
+
 @app.post("/api/detect-nextjs")
 async def detect_nextjs_endpoint(req: dict) -> JSONResponse:
     """
     Standalone Next.js detection for a single URL.
-    Body: {"url": "https://example.com", "timeout": 15}
+    Body: {"url": "https://example.com", "timeout": 15, "browser": false}
+
+    When browser=true (slower, ~5s extra), runs headless Chromium to read
+    window.next.version directly — the only reliable way to get version for
+    Vercel deploy-lock and auth-walled builds.
     """
     url = req.get("url", "").strip()
     if not url:
@@ -4280,8 +4348,33 @@ async def detect_nextjs_endpoint(req: dict) -> JSONResponse:
     if not url.startswith(("http://", "https://")):
         url = "https://" + url
     timeout = int(req.get("timeout", 15))
+    use_browser = bool(req.get("browser", False))
+
     loop = asyncio.get_event_loop()
     result = await loop.run_in_executor(None, detect_nextjs_host, url, timeout)
+
+    # Optional browser-based fallback for exact version extraction
+    if use_browser:
+        b = await _detect_nextjs_via_browser(url, timeout_ms=timeout * 1000)
+        if b.get("version") and (not result.get("version") or result.get("version_inferred")):
+            result["version"] = b["version"]
+            result["version_inferred"] = False
+            result["methods"].append("window.next.version (browser eval)")
+            result["evidence"].append(f"Browser runtime: window.next.version = {b['version']}")
+            # Re-run CVE check with the exact version
+            result["cves"] = check_nextjs_vulns(b["version"], False)
+        if b.get("build_id") and not result.get("build_id"):
+            result["build_id"] = b["build_id"]
+            result["evidence"].append(f"Browser runtime: buildId = {b['build_id']}")
+        if b.get("router") and not result.get("router"):
+            result["router"] = b["router"]
+        if b.get("react_version") and not result.get("react_version"):
+            result["react_version"] = b["react_version"]
+            result["evidence"].append(f"Browser runtime: React {b['react_version']}")
+        if b.get("browser_error"):
+            result["browser_error"] = b["browser_error"]
+        result["browser_used"] = True
+
     return JSONResponse({"url": url, **result})
 
 
