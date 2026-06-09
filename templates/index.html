@@ -154,6 +154,7 @@ html, body {
 .dash-stat-card.stat-running::before { background: var(--warning); }
 .dash-stat-card.stat-complete::before { background: var(--success); }
 .dash-stat-card.stat-aem::before { background: #69f0ae; }
+.dash-stat-card.stat-alive::before { background: #00e5ff; }
 .dash-stat-card.stat-vuln::before { background: var(--critical); }
 .dash-stat-value {
     font-family: var(--mono);
@@ -1004,6 +1005,180 @@ html, body {
     display: none;
 }
 .tab-content.active { display: block; }
+
+/* ── Tech Analysis sub-tabs ───────────────────────────── */
+.tech-subtabs {
+    display: flex;
+    gap: 8px;
+    margin: -4px -4px 14px -4px;
+    padding: 8px 4px;
+    background: linear-gradient(180deg, rgba(255,255,255,0.02), transparent);
+    border-radius: 8px;
+    position: sticky;
+    top: -12px;
+    z-index: 5;
+    backdrop-filter: blur(6px);
+}
+.tech-subtab {
+    flex: 1;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 10px 14px;
+    background: rgba(255,255,255,0.025);
+    border: 1px solid rgba(255,255,255,0.06);
+    border-radius: 8px;
+    color: var(--text-dim);
+    font-family: var(--sans);
+    font-size: 12px;
+    font-weight: 600;
+    letter-spacing: 0.5px;
+    cursor: pointer;
+    transition: all 0.18s ease;
+}
+.tech-subtab:hover {
+    background: rgba(255,255,255,0.04);
+    border-color: rgba(255,255,255,0.12);
+    color: var(--text);
+}
+.tech-subtab.active {
+    background: rgba(255,255,255,0.06);
+    border-color: rgba(255,255,255,0.18);
+    color: #fff;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.25);
+}
+.tech-subtab#techSubAem.active {
+    border-color: rgba(105,240,174,0.45);
+    background: rgba(105,240,174,0.06);
+}
+.tech-subtab#techSubNextjs.active {
+    border-color: rgba(0,229,255,0.45);
+    background: rgba(0,229,255,0.06);
+}
+.tech-subtab-icon {
+    font-size: 16px;
+    opacity: 0.85;
+}
+.tech-subtab-name {
+    flex: 1;
+    text-align: left;
+    text-transform: uppercase;
+}
+.tech-subtab-count {
+    min-width: 28px;
+    padding: 3px 9px;
+    background: var(--bg-primary);
+    border-radius: 10px;
+    font-size: 11px;
+    color: var(--text-muted);
+    font-family: var(--mono);
+    font-weight: 700;
+    text-align: center;
+}
+.tech-subtab#techSubAem.active .tech-subtab-count {
+    background: rgba(105,240,174,0.18);
+    color: #69f0ae;
+}
+.tech-subtab#techSubNextjs.active .tech-subtab-count {
+    background: rgba(0,229,255,0.18);
+    color: #00e5ff;
+}
+.tech-content {
+    display: none;
+}
+.tech-content.active { display: block; }
+
+/* ── Next.js version groups (collapsible) ───────────── */
+.nextjs-version-groups {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    margin: 10px 0 14px 0;
+    padding-bottom: 12px;
+    border-bottom: 1px dashed rgba(255,255,255,0.07);
+}
+.nextjs-version-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 5px 11px;
+    background: rgba(0,229,255,0.06);
+    border: 1px solid rgba(0,229,255,0.22);
+    border-radius: 18px;
+    font-size: 11px;
+    font-family: var(--mono);
+    color: #00e5ff;
+    cursor: pointer;
+    transition: all 0.15s ease;
+    user-select: none;
+}
+.nextjs-version-pill:hover {
+    background: rgba(0,229,255,0.12);
+    transform: translateY(-1px);
+}
+.nextjs-version-pill.active {
+    background: rgba(0,229,255,0.18);
+    border-color: rgba(0,229,255,0.5);
+    box-shadow: 0 2px 6px rgba(0,229,255,0.15);
+}
+.nextjs-version-pill.inferred {
+    background: rgba(255,167,38,0.06);
+    border-color: rgba(255,167,38,0.3);
+    color: #ffb74d;
+    font-style: italic;
+}
+.nextjs-version-pill.unknown {
+    background: rgba(255,255,255,0.04);
+    border-color: rgba(255,255,255,0.12);
+    color: var(--text-dim);
+}
+.nextjs-version-pill .pill-count {
+    background: rgba(0,0,0,0.35);
+    padding: 1px 7px;
+    border-radius: 9px;
+    font-weight: 700;
+    font-size: 10px;
+}
+.nextjs-version-pill .pill-cve {
+    color: #ef5350;
+    font-size: 10px;
+    font-weight: 700;
+}
+.nextjs-version-group {
+    margin-bottom: 18px;
+}
+.nextjs-version-group-header {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-bottom: 8px;
+    padding: 6px 10px;
+    background: rgba(0,229,255,0.04);
+    border-left: 3px solid rgba(0,229,255,0.5);
+    border-radius: 4px;
+    font-family: var(--mono);
+    font-size: 12px;
+    font-weight: 700;
+    color: #00e5ff;
+}
+.nextjs-version-group-header.inferred {
+    background: rgba(255,167,38,0.04);
+    border-left-color: rgba(255,167,38,0.5);
+    color: #ffb74d;
+}
+.nextjs-version-group-header.unknown {
+    background: rgba(255,255,255,0.025);
+    border-left-color: rgba(255,255,255,0.2);
+    color: var(--text-dim);
+}
+.nextjs-version-group-count {
+    margin-left: auto;
+    background: rgba(0,0,0,0.3);
+    padding: 2px 9px;
+    border-radius: 10px;
+    font-size: 10px;
+    font-weight: 700;
+}
 .empty-state {
     display: flex;
     flex-direction: column;
@@ -1842,6 +2017,10 @@ html, body {
                 <div class="dash-stat-value" id="dsComplete">0</div>
                 <div class="dash-stat-label">Completed</div>
             </div>
+            <div class="dash-stat-card stat-alive">
+                <div class="dash-stat-value" id="dsTotalAlive">0</div>
+                <div class="dash-stat-label">Live Subdomains Checked</div>
+            </div>
             <div class="dash-stat-card stat-aem">
                 <div class="dash-stat-value" id="dsTotalAem">0</div>
                 <div class="dash-stat-label">AEM Hosts Found</div>
@@ -1968,23 +2147,58 @@ html, body {
             <!-- Results Panel -->
             <div class="results-panel">
                 <div class="tabs-bar">
-                    <button class="tab-btn active" data-tab="aem" id="tabAem">
-                        AEM Hosts <span class="tab-count" id="tabAemCount">0</span>
+                    <button class="tab-btn active" data-tab="tech" id="tabTech">
+                        Tech Analysis <span class="tab-count" id="tabTechCount">0</span>
                     </button>
                     <button class="tab-btn" data-tab="vulns" id="tabVulns">
                         Vulnerabilities <span class="tab-count" id="tabVulnsCount">0</span>
                     </button>
-                    <button class="tab-btn" data-tab="nextjs" id="tabNextjs">
-                        Next.js <span class="tab-count" id="tabNextjsCount">0</span>
-                    </button>
-                    <button class="tab-btn" data-tab="hosts" id="tabHosts">
-                        All Hosts <span class="tab-count" id="tabHostsCount">0</span>
-                    </button>
                 </div>
-                <div class="tab-content active" id="panelAem">
-                    <div class="empty-state" id="aemEmpty">
-                        <div class="empty-state-icon">&loz;</div>
-                        <div>No AEM hosts detected yet</div>
+                <div class="tab-content active" id="panelTech">
+                    <!-- Tech sub-tab bar with stat pills -->
+                    <div class="tech-subtabs">
+                        <button class="tech-subtab active" data-subtab="aem" id="techSubAem">
+                            <span class="tech-subtab-icon">&loz;</span>
+                            <span class="tech-subtab-name">AEM</span>
+                            <span class="tech-subtab-count" id="techAemCount">0</span>
+                        </button>
+                        <button class="tech-subtab" data-subtab="nextjs" id="techSubNextjs">
+                            <span class="tech-subtab-icon">&#9830;</span>
+                            <span class="tech-subtab-name">Next.js</span>
+                            <span class="tech-subtab-count" id="techNextjsCount">0</span>
+                        </button>
+                    </div>
+                    <div class="tech-content active" id="techPanelAem">
+                        <div class="empty-state" id="aemEmpty">
+                            <div class="empty-state-icon">&loz;</div>
+                            <div>No AEM hosts detected yet</div>
+                        </div>
+                    </div>
+                    <div class="tech-content" id="techPanelNextjs">
+                        <!-- Standalone single-URL checker -->
+                        <div class="nextjs-checker-card">
+                            <div class="nextjs-checker-title">&#9830; Quick Next.js Check</div>
+                            <div class="nextjs-checker-row">
+                                <input type="text" class="nextjs-checker-input" id="nextjsCheckerUrl"
+                                    placeholder="https://example.com" autocomplete="off" spellcheck="false" />
+                                <button class="nextjs-checker-btn" id="nextjsCheckerBtn" onclick="runNextjsCheck()">
+                                    &#9654; Check
+                                </button>
+                            </div>
+                            <div id="nextjsCheckerResult"></div>
+                        </div>
+                        <!-- Version-group pills -->
+                        <div class="nextjs-version-groups" id="nextjsVersionGroups"></div>
+                        <!-- Scan results grouped by version -->
+                        <div id="nextjsResultsList">
+                            <div class="empty-state" id="nextjsEmpty">
+                                <div class="empty-state-icon">&#9830;</div>
+                                <div>No Next.js sites detected yet</div>
+                                <div style="margin-top:10px;font-size:12px;color:var(--text-muted)">
+                                    Detected automatically during Phase 3 — or use the checker above
+                                </div>
+                            </div>
+                        </div>
                     </div>
                 </div>
                 <div class="tab-content" id="panelVulns">
@@ -1992,42 +2206,6 @@ html, body {
                         <div class="empty-state-icon">&Delta;</div>
                         <div>No vulnerabilities found yet</div>
                     </div>
-                </div>
-                <div class="tab-content" id="panelNextjs">
-                    <!-- Standalone single-URL checker -->
-                    <div class="nextjs-checker-card">
-                        <div class="nextjs-checker-title">&#9830; Quick Next.js Check</div>
-                        <div class="nextjs-checker-row">
-                            <input type="text" class="nextjs-checker-input" id="nextjsCheckerUrl"
-                                placeholder="https://example.com" autocomplete="off" spellcheck="false" />
-                            <button class="nextjs-checker-btn" id="nextjsCheckerBtn" onclick="runNextjsCheck()">
-                                &#9654; Check
-                            </button>
-                        </div>
-                        <div id="nextjsCheckerResult"></div>
-                    </div>
-                    <!-- Scan results -->
-                    <div id="nextjsResultsList">
-                        <div class="empty-state" id="nextjsEmpty">
-                            <div class="empty-state-icon">&#9830;</div>
-                            <div>No Next.js sites detected yet</div>
-                            <div style="margin-top:10px;font-size:12px;color:var(--text-muted)">
-                                Detected automatically during Phase 3 — or use the checker above
-                            </div>
-                        </div>
-                    </div>
-                </div>
-                <div class="tab-content" id="panelHosts">
-                    <table class="hosts-table" id="hostsTable">
-                        <thead>
-                            <tr>
-                                <th data-sort="host">Host</th>
-                                <th data-sort="status">Status</th>
-                                <th data-sort="aem">AEM</th>
-                            </tr>
-                        </thead>
-                        <tbody id="hostsBody"></tbody>
-                    </table>
                 </div>
             </div>
         </div>
@@ -2141,9 +2319,12 @@ html, body {
         $('#footAem').textContent = state.counts.aem.toLocaleString();
         $('#footVulns').textContent = state.counts.vulns.toLocaleString();
 
-        $('#tabAemCount').textContent = state.counts.aem;
+        const aemCount = state.counts.aem || 0;
+        const nextCount = state.counts.nextjs || 0;
+        $('#techAemCount').textContent = aemCount;
+        $('#techNextjsCount').textContent = nextCount;
+        $('#tabTechCount').textContent = aemCount + nextCount;
         $('#tabVulnsCount').textContent = state.counts.vulns;
-        $('#tabHostsCount').textContent = state.counts.alive;
     }
 
     // ── Phase update ──
@@ -2210,7 +2391,7 @@ html, body {
         const empty = $('#aemEmpty');
         if (empty) empty.remove();
         state.aemHosts.push(data);
-        const panel = $('#panelAem');
+        const panel = $('#techPanelAem');
         const card = document.createElement('div');
         const confirmed = data.confidence === 'confirmed';
         card.className = 'aem-card' + (confirmed ? '' : ' suspected');
@@ -2232,7 +2413,19 @@ html, body {
         panel.appendChild(card);
     }
 
-    // ── Next.js Detection Card ──
+    // ── Next.js Detection Card (with version grouping) ──
+    state.nextjsByVersion = state.nextjsByVersion || {};   // { versionKey: [data, ...] }
+    state.nextjsFilter = null;                              // currently filtered version key
+
+    function _normaliseVersionKey(ver, inferred) {
+        if (!ver) return { key: '__unknown__', label: 'version unknown', cls: 'unknown' };
+        if (inferred) return { key: ver, label: ver, cls: 'inferred' };
+        // For exact versions, group by major.minor (e.g. 14.2.3 → "14.2.x")
+        const m = ver.match(/^(\d+)\.(\d+)\./);
+        if (m) return { key: ver, label: 'v' + ver, cls: 'exact' };
+        return { key: ver, label: ver, cls: 'exact' };
+    }
+
     function addNextjsHost(data) {
         const list = $('#nextjsResultsList');
         const empty = $('#nextjsEmpty');
@@ -2240,8 +2433,77 @@ html, body {
 
         // Update counter
         state.counts.nextjs = (state.counts.nextjs || 0) + 1;
-        $('#tabNextjsCount').textContent = state.counts.nextjs;
+        $('#techNextjsCount').textContent = state.counts.nextjs;
+        const aemCount = state.counts.aem || 0;
+        $('#tabTechCount').textContent = aemCount + state.counts.nextjs;
 
+        // Group by version key
+        const vk = _normaliseVersionKey(data.version, data.version_inferred);
+        if (!state.nextjsByVersion[vk.key]) {
+            state.nextjsByVersion[vk.key] = { label: vk.label, cls: vk.cls, hosts: [] };
+        }
+        state.nextjsByVersion[vk.key].hosts.push(data);
+
+        // Re-render version pills + groups
+        renderNextjsGroups();
+    }
+
+    function renderNextjsGroups() {
+        const pillsEl = $('#nextjsVersionGroups');
+        const listEl = $('#nextjsResultsList');
+        if (!pillsEl || !listEl) return;
+
+        // Sort keys: exact versions first (semver desc), then inferred, then unknown
+        const keys = Object.keys(state.nextjsByVersion);
+        keys.sort((a, b) => {
+            const A = state.nextjsByVersion[a], B = state.nextjsByVersion[b];
+            const aRank = A.cls === 'exact' ? 0 : A.cls === 'inferred' ? 1 : 2;
+            const bRank = B.cls === 'exact' ? 0 : B.cls === 'inferred' ? 1 : 2;
+            if (aRank !== bRank) return aRank - bRank;
+            return b.localeCompare(a);
+        });
+
+        // Render pills
+        pillsEl.innerHTML = '';
+        const allPill = document.createElement('span');
+        allPill.className = 'nextjs-version-pill' + (state.nextjsFilter === null ? ' active' : '');
+        allPill.innerHTML = 'ALL <span class="pill-count">' + (state.counts.nextjs || 0) + '</span>';
+        allPill.onclick = () => { state.nextjsFilter = null; renderNextjsGroups(); };
+        pillsEl.appendChild(allPill);
+
+        keys.forEach(k => {
+            const group = state.nextjsByVersion[k];
+            const totalCves = group.hosts.reduce((sum, h) => sum + ((h.cves || []).length), 0);
+            const pill = document.createElement('span');
+            pill.className = 'nextjs-version-pill ' + group.cls + (state.nextjsFilter === k ? ' active' : '');
+            pill.innerHTML = escapeHtml(group.label) +
+                ' <span class="pill-count">' + group.hosts.length + '</span>' +
+                (totalCves > 0 ? ' <span class="pill-cve">' + totalCves + ' CVE</span>' : '');
+            pill.onclick = () => {
+                state.nextjsFilter = (state.nextjsFilter === k) ? null : k;
+                renderNextjsGroups();
+            };
+            pillsEl.appendChild(pill);
+        });
+
+        // Render the host groups (filtered if active)
+        listEl.innerHTML = '';
+        keys.forEach(k => {
+            if (state.nextjsFilter !== null && state.nextjsFilter !== k) return;
+            const group = state.nextjsByVersion[k];
+            const groupDiv = document.createElement('div');
+            groupDiv.className = 'nextjs-version-group';
+            const header = document.createElement('div');
+            header.className = 'nextjs-version-group-header ' + group.cls;
+            header.innerHTML = escapeHtml(group.label) +
+                '<span class="nextjs-version-group-count">' + group.hosts.length + ' host' + (group.hosts.length === 1 ? '' : 's') + '</span>';
+            groupDiv.appendChild(header);
+            group.hosts.forEach(data => groupDiv.appendChild(_buildNextjsCard(data)));
+            listEl.appendChild(groupDiv);
+        });
+    }
+
+    function _buildNextjsCard(data) {
         const card = document.createElement('div');
         card.className = 'nextjs-card';
         const ver = data.version || null;
@@ -2259,16 +2521,16 @@ html, body {
             ? '<span style="font-size:10px;color:var(--text-muted);font-family:var(--mono)">React ' + escapeHtml(data.react_version) + '</span>'
             : '';
 
-        // Build CVE badges
         const cveBadges = cves.length > 0
             ? '<div class="nextjs-cve-list">' +
                 cves.map(c => {
                     const possibleCls = c.possibly_affected ? ' possible' : '';
                     const possibleTitle = c.possibly_affected ? ' (possibly affected — version inferred)' : '';
                     const nucleiBtn = c.nuclei_template
-                        ? ' <a class="nextjs-nuclei-link" href="' + escapeHtml(c.nuclei_repo + '/blob/main/' + c.nuclei_template) + '" target="_blank" rel="noopener">nuclei ↗</a>'
+                        ? ' <a class="nextjs-nuclei-link" href="' + escapeHtml((c.nuclei_repo || '') + '/blob/main/' + c.nuclei_template) + '" target="_blank" rel="noopener">nuclei ↗</a>'
                         : '';
-                    return '<a class="nextjs-cve-badge ' + c.severity + possibleCls + '" href="' + escapeHtml(c.references[0] || '#') + '" target="_blank" rel="noopener" title="' + escapeHtml(c.title + possibleTitle) + '">' +
+                    const refUrl = (c.references && c.references[0]) || '#';
+                    return '<a class="nextjs-cve-badge ' + c.severity + possibleCls + '" href="' + escapeHtml(refUrl) + '" target="_blank" rel="noopener" title="' + escapeHtml(c.title + possibleTitle) + '">' +
                         escapeHtml(c.cve) + ' ' + c.severity + ' ' + (c.cvss || '') +
                     '</a>' + nucleiBtn;
                 }).join(' ') +
@@ -2294,7 +2556,7 @@ html, body {
                     evidence.map(e => '<span>' + escapeHtml(e) + '</span>').join('') +
                   '</div>'
                 : '');
-        list.appendChild(card);
+        return card;
     }
 
     // ── Standalone Next.js checker ──
@@ -2413,17 +2675,9 @@ html, body {
         showToast('Vulnerability found: ' + (data.host || ''));
     }
 
-    // ── All Hosts Table ──
+    // ── Host tracking (table removed; data kept in state for stats) ──
     function addHostRow(data) {
         state.allHosts.push(data);
-        const body = $('#hostsBody');
-        const tr = document.createElement('tr');
-        const aemClass = data.is_aem ? 'aem-yes' : 'aem-no';
-        tr.innerHTML =
-            '<td>' + escapeHtml(data.host || '') + '</td>' +
-            '<td>' + (data.status_code || '-') + '</td>' +
-            '<td class="' + aemClass + '">' + (data.is_aem ? 'YES' : 'NO') + '</td>';
-        body.appendChild(tr);
     }
 
     // ── Toast ──
@@ -2621,20 +2875,8 @@ html, body {
         } catch (_) { /* network error — badge stays as-is */ }
     }, 15000);
 
-    // ── Rebuild host table (after AEM update) ──
-    function rebuildHostTable() {
-        const body = $('#hostsBody');
-        body.innerHTML = '';
-        state.allHosts.forEach(h => {
-            const tr = document.createElement('tr');
-            const aemClass = h.is_aem ? 'aem-yes' : 'aem-no';
-            tr.innerHTML =
-                '<td>' + escapeHtml(h.host) + '</td>' +
-                '<td>' + (h.status_code || '-') + '</td>' +
-                '<td class="' + aemClass + '">' + (h.is_aem ? 'YES' : 'NO') + '</td>';
-            body.appendChild(tr);
-        });
-    }
+    // (host table removed — all-hosts list folded into AEM/Next.js panels)
+    function rebuildHostTable() { /* no-op */ }
 
     // ── Modal title helper ──
     const modalTitle = $('#modalTitle');
@@ -3088,12 +3330,11 @@ html, body {
         state.counts = { subdomains: 0, alive: 0, aem: 0, vulns: 0, nextjs: 0 };
         state.aemHosts = [];
         state.vulnerabilities = [];
-        state.allHosts = [];
+        state.allHosts = []; state.nextjsByVersion = {}; state.nextjsFilter = null;
         state.feedEntries = 0;
         feedContent.innerHTML = '';
-        $('#panelAem').innerHTML = '<div class="empty-state" id="aemEmpty"><div class="empty-state-icon">&loz;</div><div>No AEM hosts detected yet</div></div>';
+        $('#techPanelAem').innerHTML = '<div class="empty-state" id="aemEmpty"><div class="empty-state-icon">&loz;</div><div>No AEM hosts detected yet</div></div>';
         $('#panelVulns').innerHTML = '<div class="empty-state" id="vulnEmpty"><div class="empty-state-icon">&Delta;</div><div>No vulnerabilities found yet</div></div>';
-        $('#hostsBody').innerHTML = '';
         updateCounters();
         [1, 2, 3, 4].forEach(n => {
             if (n < startPhase) {
@@ -3169,19 +3410,19 @@ html, body {
         state.counts = { subdomains: 0, alive: 0, aem: 0, vulns: 0, nextjs: 0 };
         state.aemHosts = [];
         state.vulnerabilities = [];
-        state.allHosts = [];
+        state.allHosts = []; state.nextjsByVersion = {}; state.nextjsFilter = null;
         state.subdomainsList = [];
         state.aliveList = [];
         state._largeSubdomains = false;
         state._largeAlive = false;
         state.feedEntries = 0;
         feedContent.innerHTML = '';
-        $('#panelAem').innerHTML = '<div class="empty-state" id="aemEmpty"><div class="empty-state-icon">&loz;</div><div>Loading...</div></div>';
+        $('#techPanelAem').innerHTML = '<div class="empty-state" id="aemEmpty"><div class="empty-state-icon">&loz;</div><div>Loading...</div></div>';
         $('#panelVulns').innerHTML = '<div class="empty-state" id="vulnEmpty"><div class="empty-state-icon">&Delta;</div><div>Loading...</div></div>';
         const njList = $('#nextjsResultsList');
         if (njList) njList.innerHTML = '<div class="empty-state" id="nextjsEmpty"><div class="empty-state-icon">&#9830;</div><div>No Next.js sites detected yet</div></div>';
-        $('#tabNextjsCount').textContent = '0';
-        $('#hostsBody').innerHTML = '';
+        $('#techNextjsCount').textContent = '0';
+        const __vg = $('#nextjsVersionGroups'); if (__vg) __vg.innerHTML = '';
         updateCounters();
         [1, 2, 3, 4].forEach(n => {
             setPhase(['subdomains', 'alive', 'aem', 'vulns'][n - 1], 'waiting', 0);
@@ -3362,15 +3603,29 @@ html, body {
         if (e.target === modalOverlay) modalOverlay.classList.remove('open');
     });
 
-    // Tab switching
+    // Top-level tab switching (Tech Analysis | Vulnerabilities)
     document.querySelectorAll('.tab-btn').forEach(function (btn) {
         btn.addEventListener('click', function () {
             document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
             document.querySelectorAll('.tab-content').forEach(p => p.classList.remove('active'));
             btn.classList.add('active');
             const tabName = btn.dataset.tab;
-            const panelMap = { aem: 'panelAem', vulns: 'panelVulns', nextjs: 'panelNextjs', hosts: 'panelHosts' };
-            $('#' + panelMap[tabName]).classList.add('active');
+            const panelMap = { tech: 'panelTech', vulns: 'panelVulns' };
+            const panel = $('#' + panelMap[tabName]);
+            if (panel) panel.classList.add('active');
+        });
+    });
+
+    // Tech sub-tab switching (AEM | Next.js)
+    document.querySelectorAll('.tech-subtab').forEach(function (btn) {
+        btn.addEventListener('click', function () {
+            document.querySelectorAll('.tech-subtab').forEach(b => b.classList.remove('active'));
+            document.querySelectorAll('.tech-content').forEach(p => p.classList.remove('active'));
+            btn.classList.add('active');
+            const sub = btn.dataset.subtab;
+            const subMap = { aem: 'techPanelAem', nextjs: 'techPanelNextjs' };
+            const panel = $('#' + subMap[sub]);
+            if (panel) panel.classList.add('active');
         });
     });
 
@@ -3489,7 +3744,7 @@ html, body {
         state.counts = { subdomains: 0, alive: 0, aem: 0, vulns: 0, nextjs: 0 };
         state.aemHosts = [];
         state.vulnerabilities = [];
-        state.allHosts = [];
+        state.allHosts = []; state.nextjsByVersion = {}; state.nextjsFilter = null;
         state.subdomainsList = [];
         state.aliveList = [];
         state.feedEntries = 0;
@@ -3510,9 +3765,8 @@ html, body {
             el.innerHTML = '<div class="feed-empty-icon">&#9775;</div><div>Waiting for scan to start...</div>';
             feedContent.appendChild(el);
         }
-        $('#panelAem').innerHTML = '<div class="empty-state" id="aemEmpty"><div class="empty-state-icon">&loz;</div><div>No AEM hosts detected yet</div></div>';
+        $('#techPanelAem').innerHTML = '<div class="empty-state" id="aemEmpty"><div class="empty-state-icon">&loz;</div><div>No AEM hosts detected yet</div></div>';
         $('#panelVulns').innerHTML = '<div class="empty-state" id="vulnEmpty"><div class="empty-state-icon">&Delta;</div><div>No vulnerabilities found yet</div></div>';
-        $('#hostsBody').innerHTML = '';
         updateCounters();
         [1,2,3,4].forEach(n => setPhase(['subdomains','alive','aem','vulns'][n-1], 'waiting', 0));
         setScanningState(false);
@@ -3537,14 +3791,16 @@ html, body {
         const total = scans.length;
         const running = scans.filter(s => s.status === 'running').length;
         const complete = scans.filter(s => s.status === 'complete').length;
+        const totalAlive = scans.reduce((a, s) => a + (s.alive || 0), 0);
         const totalAem = scans.reduce((a, s) => a + (s.aem_total || 0), 0);
         const totalVulns = scans.reduce((a, s) => a + (s.vulnerabilities || 0), 0);
 
         $('#dsTotalScans').textContent = total;
         $('#dsRunning').textContent = running;
         $('#dsComplete').textContent = complete;
-        $('#dsTotalAem').textContent = totalAem;
-        $('#dsTotalVulns').textContent = totalVulns;
+        $('#dsTotalAlive').textContent = totalAlive.toLocaleString();
+        $('#dsTotalAem').textContent = totalAem.toLocaleString();
+        $('#dsTotalVulns').textContent = totalVulns.toLocaleString();
 
         // Table
         const body = $('#dashBody');
@@ -3669,16 +3925,15 @@ html, body {
         state.counts = { subdomains: 0, alive: 0, aem: 0, vulns: 0, nextjs: 0 };
         state.aemHosts = [];
         state.vulnerabilities = [];
-        state.allHosts = [];
+        state.allHosts = []; state.nextjsByVersion = {}; state.nextjsFilter = null;
         state.subdomainsList = [];
         state.aliveList = [];
         state._largeSubdomains = false;
         state._largeAlive = false;
         state.feedEntries = 0;
         feedContent.innerHTML = '';
-        $('#panelAem').innerHTML = '<div class="empty-state" id="aemEmpty"><div class="empty-state-icon">&loz;</div><div>Loading...</div></div>';
+        $('#techPanelAem').innerHTML = '<div class="empty-state" id="aemEmpty"><div class="empty-state-icon">&loz;</div><div>Loading...</div></div>';
         $('#panelVulns').innerHTML = '<div class="empty-state" id="vulnEmpty"><div class="empty-state-icon">&Delta;</div><div>Loading...</div></div>';
-        $('#hostsBody').innerHTML = '';
         updateCounters();
         [1, 2, 3, 4].forEach(n => {
             setPhase(['subdomains', 'alive', 'aem', 'vulns'][n - 1], 'waiting', 0);

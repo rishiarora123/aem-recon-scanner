@@ -2816,16 +2816,17 @@ def detect_nextjs_host(base_url: str, timeout: int = 10) -> dict[str, Any]:
             result["methods"].append("meta[name=next-head-count] (App Router)")
             result["evidence"].append('meta[name="next-head-count"] present')
 
-        # M3: <div id="__next"> and data-next-page ────────────────────────
-        if re.search(r'<div[^>]+id=["\']__next["\']', html, re.I):
-            result["detected"] = True
-            if result["confidence"] == "none":
-                result["confidence"] = "suspected"
+        # M3: <div id="__next"> — WEAK signal, supporting only
+        # Some non-Next.js apps put id="__next" on a wrapper div. Record it
+        # as supporting evidence but do NOT mark as detected on its own.
+        weak_div_next = re.search(r'<div[^>]+id=["\']__next["\']', html, re.I)
+        if weak_div_next:
+            result["methods"].append('<div id="__next"> in DOM (weak)')
+            result["evidence"].append('DOM: <div id="__next">')
             if not result["router"]:
                 result["router"] = "pages"
-            result["methods"].append('<div id="__next"> in DOM')
-            result["evidence"].append('DOM: <div id="__next">')
 
+        # data-next-page — STRONG signal
         if "data-next-page" in html:
             result["detected"] = True
             result["confidence"] = "confirmed"
@@ -2833,15 +2834,27 @@ def detect_nextjs_host(base_url: str, timeout: int = 10) -> dict[str, Any]:
             result["evidence"].append("data-next-page attribute in HTML")
 
         # M4a: /_next/ asset references in HTML ───────────────────────────
-        next_srcs = re.findall(r'["\'](\/_next\/static\/[^"\'?]+)["\']', html)
-        if next_srcs:
+        # Specifically require <script src="/_next/...">, <link href="/_next/...">,
+        # or preload references — not just any string mention (which appears in
+        # docs, blog HTML, Webflow exports, etc.)
+        next_script_srcs = re.findall(
+            r'<(?:script|link)\b[^>]+(?:src|href)=["\'](\/_next\/static\/[^"\'?]+)["\']',
+            html, re.I,
+        )
+        # Also count preload/prefetch as strong
+        next_preload = re.search(
+            r'<link\b[^>]+rel=["\'](?:preload|prefetch|modulepreload)["\'][^>]+href=["\']\/_next\/',
+            html, re.I,
+        )
+        if next_script_srcs or next_preload:
             result["detected"] = True
             if result["confidence"] == "none":
-                result["confidence"] = "suspected"
-            result["methods"].append("/_next/static/ asset paths in HTML source")
-            result["evidence"].append(f"Example asset: {next_srcs[0]}")
-            # Try to parse buildId from chunk path: /_next/static/<buildId>/...
-            for src in next_srcs:
+                result["confidence"] = "confirmed"
+            result["methods"].append("/_next/static/ <script>/<link> in HTML")
+            example = next_script_srcs[0] if next_script_srcs else next_preload.group(0)[:80]
+            result["evidence"].append(f"Example asset: {example}")
+            # Parse buildId from chunk path: /_next/static/<buildId>/...
+            for src in next_script_srcs:
                 bid_m = re.search(r"/_next/static/([a-zA-Z0-9_\-]{10,})/", src)
                 if bid_m and not result["build_id"]:
                     candidate = bid_m.group(1)
@@ -3019,6 +3032,69 @@ def detect_nextjs_host(base_url: str, timeout: int = 10) -> dict[str, Any]:
         except requests.RequestException:
             pass
 
+    # ── Method 7b: Try common Next.js version-leak endpoints ──────────────────
+    # Some deployments leak the version via API endpoints or development files
+    if result["detected"] and not result["version"]:
+        version_probe_paths = [
+            "/api/health",
+            "/api/_version",
+            "/api/version",
+            "/_next/static/development/_buildManifest.js",
+            "/_next/static/development/_ssgManifest.js",
+            "/_next/__webpack_hmr",
+        ]
+        for path in version_probe_paths:
+            try:
+                r = requests.get(
+                    base + path, headers=HEADERS, timeout=min(timeout, 5),
+                    verify=False, allow_redirects=False,
+                )
+                if r.status_code == 200 and len(r.content) > 50:
+                    ver = _extract_nextjs_version_from_js(r.text[:30_000])
+                    if ver:
+                        result["version"] = ver
+                        result["evidence"].append(f"Version from {path}: {ver}")
+                        result["methods"].append(f"version endpoint ({path})")
+                        break
+                    # JSON response with version field
+                    if r.headers.get("content-type", "").startswith("application/json"):
+                        try:
+                            j = json.loads(r.text[:10_000])
+                            for key in ("version", "next_version", "nextVersion", "next"):
+                                if isinstance(j.get(key), str):
+                                    v = j[key]
+                                    if re.match(r"^\d+\.\d+\.\d+", v):
+                                        result["version"] = v
+                                        result["evidence"].append(f"Version from {path} JSON: {v}")
+                                        result["methods"].append(f"version JSON ({path})")
+                                        break
+                            if result["version"]:
+                                break
+                        except (ValueError, AttributeError):
+                            pass
+            except requests.RequestException:
+                pass
+
+    # ── Method 7c: ssgManifest via known buildId (alternate path) ─────────────
+    if result["detected"] and result["build_id"] and not result["version"]:
+        for manifest_path in (
+            f"/_next/static/{result['build_id']}/_ssgManifest.js",
+            f"/_next/static/{result['build_id']}/_middlewareManifest.js",
+        ):
+            try:
+                r = requests.get(
+                    base + manifest_path, headers=HEADERS, timeout=min(timeout, 5),
+                    verify=False, allow_redirects=False,
+                )
+                if r.status_code == 200:
+                    ver = _extract_nextjs_version_from_js(r.text[:50_000])
+                    if ver:
+                        result["version"] = ver
+                        result["evidence"].append(f"Version from {manifest_path}: {ver}")
+                        break
+            except requests.RequestException:
+                pass
+
     # ── Method 8: React version → Next.js range inference (fallback) ──────────
     # When no exact version could be found, infer the Next.js major range from the
     # React version in the framework bundle.  This handles hardened production builds
@@ -3159,15 +3235,18 @@ def phase3_aem_detect(scan: ScanState) -> None:
 
         if nextjs["detected"]:
             _send_ws(scan, {
-                "type":       "nextjs_detected",
-                "phase":      3,
-                "host":       base,
-                "version":    nextjs["version"],
-                "build_id":   nextjs["build_id"],
-                "router":     nextjs["router"],
-                "confidence": nextjs["confidence"],
-                "methods":    nextjs["methods"],
-                "evidence":   nextjs["evidence"],
+                "type":             "nextjs_detected",
+                "phase":            3,
+                "host":             base,
+                "version":          nextjs["version"],
+                "version_inferred": nextjs.get("version_inferred", False),
+                "react_version":    nextjs.get("react_version"),
+                "build_id":         nextjs["build_id"],
+                "router":           nextjs["router"],
+                "confidence":       nextjs["confidence"],
+                "methods":          nextjs["methods"],
+                "evidence":         nextjs["evidence"],
+                "cves":             nextjs.get("cves", []),
             })
 
         _send_ws(scan, {
