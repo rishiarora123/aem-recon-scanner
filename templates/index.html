@@ -706,6 +706,38 @@ html, body {
     font-size: 11px;
     color: var(--text-dim);
 }
+.phase-counter-split {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin: 4px 0 6px;
+}
+.phase-counter-half {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+}
+.phase-counter-half-value {
+    font-family: var(--mono);
+    font-size: 20px;
+    font-weight: 700;
+    line-height: 1.05;
+}
+.phase-counter-half-label {
+    font-size: 10px;
+    color: var(--text-dim);
+    text-transform: uppercase;
+    letter-spacing: 0.6px;
+    margin-top: 1px;
+}
+.phase-counter-half.aem .phase-counter-half-value { color: #69f0ae; }
+.phase-counter-half.nextjs .phase-counter-half-value { color: #00e5ff; }
+.phase-counter-divider {
+    width: 1px;
+    height: 28px;
+    background: rgba(255,255,255,0.12);
+}
 .phase-progress {
     height: 3px;
     background: var(--bg-primary);
@@ -2090,11 +2122,11 @@ html, body {
             </div>
             <div class="phase-card" id="phase-2" data-phase="alive">
                 <div class="phase-header">
-                    <div><span class="phase-num">&otimes;</span> <span class="phase-name">Alive Hosts</span></div>
+                    <div><span class="phase-num">&otimes;</span> <span class="phase-name">Live Subdomains</span></div>
                     <span class="phase-status" id="phase-2-status">WAITING</span>
                 </div>
                 <div class="phase-counter" id="phase-2-count">0</div>
-                <div class="phase-counter-label">alive</div>
+                <div class="phase-counter-label">checked &amp; alive</div>
                 <div class="phase-progress"><div class="phase-progress-bar" id="phase-2-bar"></div></div>
                 <div class="phase-actions">
                     <button class="phase-action-btn" onclick="event.stopPropagation();downloadPhaseTXT(2)" title="Download TXT">&#8681; TXT</button>
@@ -2103,11 +2135,20 @@ html, body {
             </div>
             <div class="phase-card" id="phase-3" data-phase="aem">
                 <div class="phase-header">
-                    <div><span class="phase-num">&oplus;</span> <span class="phase-name">AEM Detected</span></div>
+                    <div><span class="phase-num">&oplus;</span> <span class="phase-name">Tech Analysis</span></div>
                     <span class="phase-status" id="phase-3-status">WAITING</span>
                 </div>
-                <div class="phase-counter" id="phase-3-count">0</div>
-                <div class="phase-counter-label">AEM hosts</div>
+                <div class="phase-counter-split">
+                    <div class="phase-counter-half aem">
+                        <span class="phase-counter-half-value" id="phase-3-count">0</span>
+                        <span class="phase-counter-half-label">AEM</span>
+                    </div>
+                    <div class="phase-counter-divider"></div>
+                    <div class="phase-counter-half nextjs">
+                        <span class="phase-counter-half-value" id="phase-3-nextjs-count">0</span>
+                        <span class="phase-counter-half-label">Next.js</span>
+                    </div>
+                </div>
                 <div class="phase-progress"><div class="phase-progress-bar" id="phase-3-bar"></div></div>
                 <div class="phase-actions">
                     <button class="phase-action-btn" onclick="event.stopPropagation();downloadPhaseTXT(3)" title="Download TXT">&#8681; TXT</button>
@@ -2219,11 +2260,15 @@ html, body {
         </div>
         <div class="footer-stat">
             <span class="footer-stat-value" id="footAlive">0</span>
-            <span class="footer-stat-label">Alive</span>
+            <span class="footer-stat-label">Live Subdomains</span>
         </div>
         <div class="footer-stat">
             <span class="footer-stat-value" id="footAem">0</span>
-            <span class="footer-stat-label">AEM Detected</span>
+            <span class="footer-stat-label">AEM</span>
+        </div>
+        <div class="footer-stat">
+            <span class="footer-stat-value" id="footNextjs">0</span>
+            <span class="footer-stat-label">Next.js</span>
         </div>
         <div class="footer-stat critical">
             <span class="footer-stat-value" id="footVulns">0</span>
@@ -2312,11 +2357,13 @@ html, body {
         animateCounter($('#phase-1-count'), state.counts.subdomains);
         animateCounter($('#phase-2-count'), state.counts.alive);
         animateCounter($('#phase-3-count'), state.counts.aem);
+        animateCounter($('#phase-3-nextjs-count'), state.counts.nextjs || 0);
         animateCounter($('#phase-4-count'), state.counts.vulns);
 
         $('#footSubdomains').textContent = state.counts.subdomains.toLocaleString();
         $('#footAlive').textContent = state.counts.alive.toLocaleString();
         $('#footAem').textContent = state.counts.aem.toLocaleString();
+        const __fn = $('#footNextjs'); if (__fn) __fn.textContent = (state.counts.nextjs || 0).toLocaleString();
         $('#footVulns').textContent = state.counts.vulns.toLocaleString();
 
         const aemCount = state.counts.aem || 0;
