@@ -2872,7 +2872,12 @@ def detect_nextjs_host(base_url: str, timeout: int = 10) -> dict[str, Any]:
                 base + path, headers=HEADERS, timeout=timeout,
                 verify=False, allow_redirects=False,
             )
-            if r.status_code == 200 and len(r.content) > 200:
+            ct = r.headers.get("content-type", "").lower()
+            is_js = "javascript" in ct or "text/plain" in ct
+            # Also accept if response starts with actual JS (not HTML)
+            body_start = r.text[:50].strip()
+            looks_like_js = not body_start.startswith(("<", "<!"))
+            if r.status_code == 200 and len(r.content) > 200 and (is_js or looks_like_js):
                 result["detected"] = True
                 result["confidence"] = "confirmed"
                 result["methods"].append(f"/_next/static/ asset confirmed ({path.split('/')[-1]})")
@@ -2956,6 +2961,11 @@ def detect_nextjs_host(base_url: str, timeout: int = 10) -> dict[str, Any]:
                     verify=False, allow_redirects=False,
                 )
                 if r.status_code != 200 or len(r.content) < 100:
+                    continue
+                # Skip catch-all HTML responses masquerading as JS files
+                ct = r.headers.get("content-type", "").lower()
+                body_preview = r.text[:80].strip()
+                if body_preview.startswith(("<", "<!")) and "javascript" not in ct:
                     continue
                 js_text = r.text[:120_000]
                 chunk_name = chunk_src.rsplit("/", 1)[-1]
