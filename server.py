@@ -3270,12 +3270,48 @@ def detect_nextjs_host(
 # PE resource headers and Last-Modified timestamps).
 
 IVANTI_PRODUCT_PATTERNS: list[tuple[str, str]] = [
-    # Pages most likely to be served by the appliance
-    ("/dana-na/auth/url_default/welcome.cgi", "welcome.cgi"),
-    ("/dana-na/auth/welcome.cgi",             "welcome.cgi (alt)"),
-    ("/dana-na/auth/url_default/login.cgi",   "login.cgi"),
-    ("/dana-na/auth/url_admin/welcome.cgi",   "admin welcome.cgi"),
-    ("/dana-na/help/version.json",            "version.json (uncommon)"),
+    # Connect Secure / Pulse Secure (VPN gateway)
+    ("/dana-na/auth/url_default/welcome.cgi", "Connect Secure welcome.cgi"),
+    ("/dana-na/auth/welcome.cgi",             "Connect Secure welcome.cgi (alt)"),
+    ("/dana-na/auth/url_default/login.cgi",   "Connect Secure login.cgi"),
+    ("/dana-na/auth/url_admin/welcome.cgi",   "Connect Secure admin welcome.cgi"),
+    ("/dana-na/help/version.json",            "Connect Secure version.json"),
+    # System Manager / Endpoint Manager / MICS
+    ("/mics/login.jsp",                        "System Manager login"),
+    ("/mics/",                                 "System Manager root"),
+    # Endpoint Manager / Patch (EPM)
+    ("/landesk/managementsuite/",              "Endpoint Manager"),
+    ("/ldlogon/",                              "Endpoint Manager (ldlogon)"),
+    # Service Manager (HEAT)
+    ("/HEAT/Login.aspx",                       "HEAT Service Manager"),
+    ("/ServiceDeskCustomerPortal/",            "Service Desk"),
+    # Avalanche
+    ("/AvalancheWeb/Login.aspx",               "Avalanche login"),
+    # Neurons / Workspace Control
+    ("/SelfService/",                          "Neurons SelfService"),
+    ("/Neurons/",                              "Neurons portal"),
+    # Cloud Service Appliance (CSA)
+    ("/client/index.php",                      "CSA client (Cloud Service Appliance)"),
+    ("/gsb/",                                  "Pulse Secure CSA gsb"),
+]
+
+# Product strings — appear in <title> or HTML body of various Ivanti products
+IVANTI_PRODUCT_STRINGS: list[tuple[str, str]] = [
+    ("Ivanti Connect Secure",         "Ivanti Connect Secure"),
+    ("Pulse Connect Secure",          "Pulse Connect Secure"),
+    ("Pulse Secure, LLC",             "Pulse Secure"),
+    ("Ivanti System Manager",         "Ivanti System Manager"),
+    ("Ivanti Endpoint Manager",       "Ivanti Endpoint Manager"),
+    ("Ivanti Patch",                  "Ivanti Patch Manager"),
+    ("Ivanti Neurons",                "Ivanti Neurons"),
+    ("Ivanti Service Manager",        "Ivanti Service Manager"),
+    ("Ivanti Workspace Control",      "Ivanti Workspace Control"),
+    ("Ivanti Avalanche",              "Ivanti Avalanche"),
+    ("Ivanti Cloud Service Appliance","Ivanti CSA"),
+    ("LANDESK",                       "LANDESK (legacy Ivanti)"),
+    ("HEAT Software",                 "HEAT Service Manager (legacy)"),
+    # Page titles
+    ("<title>Ivanti",                 "Ivanti (title tag)"),
 ]
 
 # Host Checker / Pulse Secure setup binaries — these often expose version via
@@ -3300,26 +3336,51 @@ IVANTI_COOKIE_NAMES: list[str] = [
 def _extract_ivanti_version_from_html(html: str) -> str | None:
     """
     Extract Ivanti / Pulse Secure version from welcome.cgi or related HTML.
-    Returns a version string like '22.7R2.5' or '9.1R18.1' or None.
+    Returns a version string like '22.7R2.5' / '9.1R18.1' / '10.7.0' / None.
+    Handles both Connect Secure (R-style) and System Manager / EPM (semver) formats.
     """
-    patterns = [
-        # 22.7R2.5 / 9.1R18.4 — standard Ivanti version format
+    # Highly-specific Connect Secure patterns first
+    rpatterns = [
         r'Ivanti Connect Secure\s+v?(\d+\.\d+R\d+(?:\.\d+)?)',
         r'Pulse Connect Secure\s+v?(\d+\.\d+R\d+(?:\.\d+)?)',
         r'pulse[-_]?secure[-_]?(\d+\.\d+R\d+(?:\.\d+)?)',
-        # version string in inline JS / HTML comments
         r'pcsver\s*[=:]\s*["\'](\d+\.\d+R\d+(?:\.\d+)?)["\']',
         r'productVersion\s*[=:]\s*["\'](\d+\.\d+R\d+(?:\.\d+)?)["\']',
         r'/dana-cached/sc/sc/(\d+\.\d+R\d+(?:\.\d+)?)/',
-        # Sometimes embedded in JS chunk paths as ?v=22.7R2.5
         r'[?&]v=(\d+\.\d+R\d+(?:\.\d+)?)',
-        # Generic semver-ish — last resort, only inside ivanti/pulse context
         r'(?:ivanti|pulse|ICS|PCS)[^<>]{0,40}(\d+\.\d+R\d+(?:\.\d+)?)',
     ]
-    for p in patterns:
+    for p in rpatterns:
         m = re.search(p, html, re.IGNORECASE)
         if m:
             return m.group(1)
+
+    # System Manager / EPM / Avalanche / Neurons use semver — only trust the
+    # match if it appears as a CSS/JS cache-buster (`/login.css?10.7.0`,
+    # `/main.js?v=2023.4`) OR in an explicit version field.
+    spatterns = [
+        # Cache-buster on CSS or JS: src/href="...login.css?10.7.0" or ?v=10.7.0
+        r'\.(?:css|js)\?(?:v=)?(\d+\.\d+(?:\.\d+)?(?:\.\d+)?)',
+        # Embedded version field
+        r'(?:product[Vv]ersion|appVersion|buildVersion|webVersion)\s*[=:]\s*["\'](\d+\.\d+(?:\.\d+)?(?:\.\d+)?)["\']',
+        # Build / version near "Ivanti"
+        r'Ivanti[^<>"]{0,60}?[Vv]ersion[\s:]+(\d+\.\d+(?:\.\d+)?(?:\.\d+)?)',
+        # "Build 10.7.0" or "v10.7.0" near product name
+        r'(?:Ivanti|LANDESK|MICS|EPM|System\s+Manager)[^<>]{0,80}?[Vv](\d+\.\d+(?:\.\d+)?(?:\.\d+)?)',
+        # In HTML comments: <!-- Version 10.7.0 -->
+        r'<!--[^>]{0,80}?[Vv]ersion[\s:]+(\d+\.\d+(?:\.\d+)?(?:\.\d+)?)',
+    ]
+    for p in spatterns:
+        m = re.search(p, html, re.IGNORECASE)
+        if m:
+            ver = m.group(1)
+            # Sanity bound — Ivanti products run 8.x – 25.x
+            try:
+                major = int(ver.split(".")[0])
+                if 7 <= major <= 30:
+                    return ver
+            except ValueError:
+                pass
     return None
 
 
@@ -3411,6 +3472,7 @@ def detect_ivanti_host(
 
     # M1b: HTML body signatures
     if html:
+        # Connect Secure / Pulse login form
         if re.search(r'<form\s+[^>]*name=["\']frmLogin["\']', html, re.I):
             result["detected"] = True
             result["confidence"] = "confirmed"
@@ -3431,20 +3493,35 @@ def detect_ivanti_host(
             if result["confidence"] == "none":
                 result["confidence"] = "suspected"
             result["methods"].append("/dana-cached/ asset path in HTML")
-        # Inline title or product strings
-        for product, label in [
-            ("Ivanti Connect Secure", "Ivanti Connect Secure"),
-            ("Pulse Connect Secure",  "Pulse Connect Secure"),
-            ("Pulse Secure, LLC",     "Pulse Secure, LLC"),
+        # System Manager / EPM / Avalanche path indicators
+        for path_marker, label in [
+            ("/mics/",                      "/mics/ path (System Manager)"),
+            ("/landesk/",                   "/landesk/ path (Endpoint Manager)"),
+            ("/ldlogon/",                   "/ldlogon/ path (Endpoint Manager)"),
+            ("/HEAT/",                      "/HEAT/ path (Service Manager)"),
+            ("/AvalancheWeb/",              "/AvalancheWeb/ path (Avalanche)"),
+            ("/SelfService/",               "/SelfService/ path (Neurons)"),
         ]:
-            if product in html:
+            if path_marker in html:
+                result["detected"] = True
+                if result["confidence"] == "none":
+                    result["confidence"] = "suspected"
+                result["methods"].append(label)
+
+        # Iterate full product-strings list. First match wins for the `product`
+        # field so a specific "Ivanti System Manager" hit isn't later overwritten
+        # by a generic "<title>Ivanti" match. We still record every hit in
+        # methods/evidence for transparency.
+        for needle, label in IVANTI_PRODUCT_STRINGS:
+            if needle in html:
                 result["detected"] = True
                 result["confidence"] = "confirmed"
-                result["product"] = label
-                if f"product:{label}" not in result["methods"]:
-                    result["methods"].append(f"product string: {label}")
-                    result["evidence"].append(f'HTML contains "{product}"')
-                break
+                if not result["product"]:
+                    result["product"] = label
+                method_tag = f"product string: {label}"
+                if method_tag not in result["methods"]:
+                    result["methods"].append(method_tag)
+                    result["evidence"].append(f'HTML contains "{needle}"')
 
         # Extract version from HTML (M2)
         ver = _extract_ivanti_version_from_html(html)
@@ -3453,29 +3530,44 @@ def detect_ivanti_host(
             result["evidence"].append(f"Version from HTML: {ver}")
             result["methods"].append("Version regex (HTML)")
 
-    # ── M2: probe welcome.cgi / login.cgi if not yet confirmed ────────────────
+    # ── M2: probe product endpoints if not yet confirmed (or no version yet) ──
     if not result["detected"] or not result["version"]:
+        # Helper: does this body / headers smell like Ivanti?
+        def _is_ivanti_body(body: str, hdrs: dict) -> tuple[bool, str | None]:
+            body = body or ""
+            for needle, label in IVANTI_PRODUCT_STRINGS:
+                if needle in body:
+                    return True, label
+            if "frmLogin" in body or "welcome.cgi?p=logo" in body:
+                return True, None
+            if "DSID" in hdrs.get("set-cookie", ""):
+                return True, "Connect Secure (DSID cookie)"
+            return False, None
+
         for path, label in IVANTI_PRODUCT_PATTERNS:
             try:
                 r = requests.get(
                     base + path, headers=HEADERS, timeout=timeout,
-                    verify=False, allow_redirects=False,
+                    verify=False, allow_redirects=True,   # System Manager redirects to /mics/login.jsp
                 )
-                # 200, 302, 401 are all positive indicators (the endpoint exists)
-                if r.status_code in (200, 302, 401) and (
-                    "frmLogin" in (r.text or "")
-                    or "Pulse" in (r.text or "")
-                    or "DSID" in r.headers.get("set-cookie", "")
-                ):
-                    result["detected"] = True
-                    result["confidence"] = "confirmed"
-                    result["methods"].append(f"endpoint: {label}")
-                    result["evidence"].append(f"{path} -> HTTP {r.status_code}")
-                    if not result["version"]:
-                        ver = _extract_ivanti_version_from_html(r.text or "")
-                        if ver:
-                            result["version"] = ver
-                            result["evidence"].append(f"Version from {label}: {ver}")
+                if r.status_code not in (200, 302, 401):
+                    continue
+                hit, product = _is_ivanti_body(r.text or "", {k.lower(): v for k, v in r.headers.items()})
+                if not hit:
+                    continue
+                result["detected"] = True
+                result["confidence"] = "confirmed"
+                if product and not result["product"]:
+                    result["product"] = product
+                result["methods"].append(f"endpoint: {label}")
+                result["evidence"].append(f"{path} -> HTTP {r.status_code} (final: {r.url})")
+                if not result["version"]:
+                    ver = _extract_ivanti_version_from_html(r.text or "")
+                    if ver:
+                        result["version"] = ver
+                        result["evidence"].append(f"Version from {label}: {ver}")
+                # Don't break — try a couple more to pick up better product / version
+                if result["version"] and result["product"]:
                     break
             except requests.RequestException:
                 pass
@@ -3530,9 +3622,9 @@ def detect_ivanti_host(
     if result["detected"] and not result["product"]:
         result["product"] = "Ivanti Connect Secure"   # default name
 
-    # ── CVE check ─────────────────────────────────────────────────────────────
+    # ── CVE check (product-aware) ─────────────────────────────────────────────
     if result["detected"]:
-        result["cves"] = check_ivanti_vulns(result["version"])
+        result["cves"] = check_ivanti_vulns(result["version"], result["product"])
 
     return result
 
@@ -3638,7 +3730,7 @@ IVANTI_VULN_DB: list[dict[str, Any]] = [
         ),
         "affected": [
             {"product": "ICS", "lt": "22.7R2.6"},
-            {"product": "PCS", "lt": "9.1R18.9"},
+            {"product": "ICS", "lt": "9.1R18.9"},
         ],
         "fixed_in":        ["22.7R2.6", "9.1R18.9"],
         "nuclei_template": "http/cves/2025/CVE-2025-22457.yaml",
@@ -3646,6 +3738,89 @@ IVANTI_VULN_DB: list[dict[str, Any]] = [
         "references": [
             "https://nvd.nist.gov/vuln/detail/CVE-2025-22457",
             "https://forums.ivanti.com/s/article/Security-Advisory-Ivanti-Connect-Secure-Policy-Secure-ZTA-Gateways-CVE-2025-22457",
+        ],
+    },
+    # ── Endpoint Manager (EPM) ────────────────────────────────────────────────
+    {
+        "cve":         "CVE-2024-29824",
+        "severity":    "CRITICAL",
+        "cvss":        9.6,
+        "title":       "SQL Injection → unauthenticated RCE in EPM",
+        "description": (
+            "An unspecified SQL Injection in Ivanti Endpoint Manager Core "
+            "before 2022 SU6 / 2024 allows an unauthenticated attacker on the "
+            "same network to execute arbitrary code."
+        ),
+        "affected": [
+            {"product": "EPM", "lt": "2022.6"},
+            {"product": "EPM", "gte": "2024.0", "lt": "2024.1"},
+        ],
+        "fixed_in":        ["2022 SU6", "2024 SU1"],
+        "nuclei_template": "http/cves/2024/CVE-2024-29824.yaml",
+        "nuclei_repo":     "https://github.com/projectdiscovery/nuclei-templates",
+        "references": [
+            "https://nvd.nist.gov/vuln/detail/CVE-2024-29824",
+            "https://forums.ivanti.com/s/article/Security-Advisory-EPM-May-2024",
+        ],
+    },
+    {
+        "cve":         "CVE-2024-29822",
+        "severity":    "HIGH",
+        "cvss":        8.4,
+        "title":       "SQL Injection in EPM allows remote attacker to execute arbitrary code",
+        "description": (
+            "An SQL Injection in Ivanti EPM 2022 SU5 and prior allows an "
+            "unauthenticated attacker within the same network to execute code."
+        ),
+        "affected": [
+            {"product": "EPM", "lt": "2022.6"},
+        ],
+        "fixed_in":        ["2022 SU6"],
+        "nuclei_template": "http/cves/2024/CVE-2024-29822.yaml",
+        "nuclei_repo":     "https://github.com/projectdiscovery/nuclei-templates",
+        "references": [
+            "https://nvd.nist.gov/vuln/detail/CVE-2024-29822",
+        ],
+    },
+    # ── Cloud Service Appliance (CSA) ─────────────────────────────────────────
+    {
+        "cve":         "CVE-2024-8190",
+        "severity":    "HIGH",
+        "cvss":        7.2,
+        "title":       "Command Injection in CSA (authenticated)",
+        "description": (
+            "An OS command injection vulnerability in CSA before 4.6 Patch 519 "
+            "(legacy 4.6) allows an authenticated admin to remotely execute "
+            "arbitrary commands. Actively exploited."
+        ),
+        "affected": [
+            {"product": "CSA", "lt": "4.6.7"},
+        ],
+        "fixed_in":        ["4.6 Patch 519"],
+        "nuclei_template": "http/cves/2024/CVE-2024-8190.yaml",
+        "nuclei_repo":     "https://github.com/projectdiscovery/nuclei-templates",
+        "references": [
+            "https://nvd.nist.gov/vuln/detail/CVE-2024-8190",
+        ],
+    },
+    {
+        "cve":         "CVE-2024-7593",
+        "severity":    "CRITICAL",
+        "cvss":        9.8,
+        "title":       "Authentication bypass in vTM admin interface",
+        "description": (
+            "Incorrect implementation of an authentication algorithm in Ivanti "
+            "Virtual Traffic Manager (vTM) allows attackers to bypass admin "
+            "panel authentication."
+        ),
+        "affected": [
+            {"product": "VTM", "gte": "22.2", "lt": "22.7R3"},
+        ],
+        "fixed_in":        ["22.7R3"],
+        "nuclei_template": "http/cves/2024/CVE-2024-7593.yaml",
+        "nuclei_repo":     "https://github.com/projectdiscovery/nuclei-templates",
+        "references": [
+            "https://nvd.nist.gov/vuln/detail/CVE-2024-7593",
         ],
     },
 ]
@@ -3672,19 +3847,66 @@ def _parse_ivanti_version(version: str) -> tuple[int, int, int, int] | None:
     )
 
 
-def check_ivanti_vulns(version: str | None) -> list[dict[str, Any]]:
-    """Match a detected Ivanti version against the CVE database."""
+# Map detected product names → CVE-database product codes
+_IVANTI_PRODUCT_TO_CODE: dict[str, str] = {
+    "Ivanti Connect Secure":          "ICS",
+    "Pulse Connect Secure":           "ICS",        # treat PCS as ICS for CVE purposes
+    "Pulse Secure":                   "ICS",
+    "Ivanti System Manager":          "MICS",
+    "Ivanti Endpoint Manager":        "EPM",
+    "Ivanti Patch Manager":           "EPM",
+    "LANDESK (legacy Ivanti)":        "EPM",
+    "Ivanti Service Manager":         "ISM",
+    "HEAT Service Manager (legacy)":  "ISM",
+    "Ivanti Workspace Control":       "IWC",
+    "Ivanti Avalanche":               "AVALANCHE",
+    "Ivanti CSA":                     "CSA",
+    "Ivanti Neurons":                 "NEURONS",
+}
+
+
+def check_ivanti_vulns(
+    version: str | None,
+    product: str | None = None,
+) -> list[dict[str, Any]]:
+    """
+    Match a detected Ivanti version+product against the CVE database.
+
+    Each CVE entry's `affected` is a list of {product, gte, lt} rules. When
+    `product` is provided, only CVEs whose `affected[i].product` matches the
+    mapped product code are eligible. When `product` is unknown, fall back to
+    matching by version-range only (legacy behaviour).
+    """
+    product_code = _IVANTI_PRODUCT_TO_CODE.get(product or "") if product else None
+
     if not version:
-        # When version unknown, return all CVEs as 'possibly_affected'
+        # When version unknown but product known, return CVEs scoped to that product
+        if product_code:
+            return [
+                {**v, "possibly_affected": True}
+                for v in IVANTI_VULN_DB
+                if any(rng.get("product") == product_code for rng in v.get("affected", []))
+            ]
         return [{**v, "possibly_affected": True} for v in IVANTI_VULN_DB]
 
     parsed = _parse_ivanti_version(version)
     if not parsed:
+        # Same scoping when version isn't parseable
+        if product_code:
+            return [
+                {**v, "possibly_affected": True}
+                for v in IVANTI_VULN_DB
+                if any(rng.get("product") == product_code for rng in v.get("affected", []))
+            ]
         return [{**v, "possibly_affected": True} for v in IVANTI_VULN_DB]
 
     results: list[dict[str, Any]] = []
     for vuln in IVANTI_VULN_DB:
         for rng in vuln.get("affected", []):
+            # Product gating: if we know the product, only match CVEs that apply
+            # to it. If product is unknown, accept any rule.
+            if product_code and rng.get("product") and rng["product"] != product_code:
+                continue
             lt_str = rng.get("lt")
             gte_str = rng.get("gte")
             lt_parsed = _parse_ivanti_version(lt_str) if lt_str else None
