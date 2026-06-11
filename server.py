@@ -695,6 +695,8 @@ class ScanState:
     aem_hosts: dict[str, dict[str, Any]] = field(default_factory=dict)
     # Phase 3 — Next.js fingerprinting (runs in parallel with AEM detection)
     nextjs_hosts: dict[str, dict[str, Any]] = field(default_factory=dict)
+    # Phase 3 — Ivanti Connect Secure / Pulse Secure fingerprinting
+    ivanti_hosts: dict[str, dict[str, Any]] = field(default_factory=dict)
     # Phase 4 results
     vulnerabilities: list[dict[str, Any]] = field(default_factory=list)
     vulnerability_summary: dict[str, Any] = field(default_factory=dict)
@@ -704,6 +706,8 @@ class ScanState:
     per_host: int = DEFAULT_PER_HOST
     timeout: int = DEFAULT_TIMEOUT
     bypass_mode: str = "full"
+    # Which tech detectors to run in Phase 3
+    enabled_techs: list[str] = field(default_factory=lambda: ["aem", "nextjs", "ivanti"])
 
     # WebSocket connections
     ws_connections: list[WebSocket] = field(default_factory=list)
@@ -762,6 +766,8 @@ def _scan_to_dict(scan: ScanState) -> dict[str, Any]:
         "alive_hosts":          scan.alive_hosts,
         "aem_hosts":            scan.aem_hosts,
         "nextjs_hosts":         scan.nextjs_hosts,
+        "ivanti_hosts":         scan.ivanti_hosts,
+        "enabled_techs":        scan.enabled_techs,
         "vulnerabilities":      scan.vulnerabilities,
         "vulnerability_summary":scan.vulnerability_summary,
         "threads":              scan.threads,
@@ -789,6 +795,8 @@ def _dict_to_scan(d: dict[str, Any]) -> ScanState:
     scan.alive_hosts         = d.get("alive_hosts", [])
     scan.aem_hosts           = d.get("aem_hosts", {})
     scan.nextjs_hosts        = d.get("nextjs_hosts", {})
+    scan.ivanti_hosts        = d.get("ivanti_hosts", {})
+    scan.enabled_techs       = d.get("enabled_techs", ["aem", "nextjs", "ivanti"])
     scan.vulnerabilities     = d.get("vulnerabilities", [])
     scan.vulnerability_summary = d.get("vulnerability_summary", {})
     scan.threads             = d.get("threads", DEFAULT_THREADS)
@@ -3253,6 +3261,445 @@ def detect_nextjs_host(
     return result
 
 
+# ============================================================================
+# IVANTI CONNECT SECURE / PULSE SECURE DETECTION
+# ============================================================================
+# Detects Ivanti Connect Secure (formerly Pulse Connect Secure) appliances
+# through HTML signatures, response cookies, dana-cached asset probes, and
+# Host Checker installer binaries (which embed the exact build version in
+# PE resource headers and Last-Modified timestamps).
+
+IVANTI_PRODUCT_PATTERNS: list[tuple[str, str]] = [
+    # Pages most likely to be served by the appliance
+    ("/dana-na/auth/url_default/welcome.cgi", "welcome.cgi"),
+    ("/dana-na/auth/welcome.cgi",             "welcome.cgi (alt)"),
+    ("/dana-na/auth/url_default/login.cgi",   "login.cgi"),
+    ("/dana-na/auth/url_admin/welcome.cgi",   "admin welcome.cgi"),
+    ("/dana-na/help/version.json",            "version.json (uncommon)"),
+]
+
+# Host Checker / Pulse Secure setup binaries — these often expose version via
+# Last-Modified / ETag headers even when bytes can't be parsed
+IVANTI_INSTALLER_PATHS: list[str] = [
+    "/dana-cached/hc/PulseHostCheckerInstaller.exe",
+    "/dana-cached/hc/dana_hc_alpha.cab",
+    "/dana-cached/hc/PulseHostCheckerInstaller.x64.exe",
+    "/dana-cached/hc/PulseHostChecker.dmg",
+    "/dana-cached/setup/PulseSecuredSetup.exe",
+    "/dana-cached/setup/PulseSecureAppLauncher.msi",
+    "/dana-cached/sc/sc/PulseSecureAppLauncher.msi",
+]
+
+# Common Ivanti cookies set by the appliance
+IVANTI_COOKIE_NAMES: list[str] = [
+    "DSID", "DSSIGNIN", "DSSignInUrl", "DSFirstAccess", "DSLastAccess",
+    "DSPREAUTH", "DSPREAUTH_VLD", "lastRealm",
+]
+
+
+def _extract_ivanti_version_from_html(html: str) -> str | None:
+    """
+    Extract Ivanti / Pulse Secure version from welcome.cgi or related HTML.
+    Returns a version string like '22.7R2.5' or '9.1R18.1' or None.
+    """
+    patterns = [
+        # 22.7R2.5 / 9.1R18.4 — standard Ivanti version format
+        r'Ivanti Connect Secure\s+v?(\d+\.\d+R\d+(?:\.\d+)?)',
+        r'Pulse Connect Secure\s+v?(\d+\.\d+R\d+(?:\.\d+)?)',
+        r'pulse[-_]?secure[-_]?(\d+\.\d+R\d+(?:\.\d+)?)',
+        # version string in inline JS / HTML comments
+        r'pcsver\s*[=:]\s*["\'](\d+\.\d+R\d+(?:\.\d+)?)["\']',
+        r'productVersion\s*[=:]\s*["\'](\d+\.\d+R\d+(?:\.\d+)?)["\']',
+        r'/dana-cached/sc/sc/(\d+\.\d+R\d+(?:\.\d+)?)/',
+        # Sometimes embedded in JS chunk paths as ?v=22.7R2.5
+        r'[?&]v=(\d+\.\d+R\d+(?:\.\d+)?)',
+        # Generic semver-ish — last resort, only inside ivanti/pulse context
+        r'(?:ivanti|pulse|ICS|PCS)[^<>]{0,40}(\d+\.\d+R\d+(?:\.\d+)?)',
+    ]
+    for p in patterns:
+        m = re.search(p, html, re.IGNORECASE)
+        if m:
+            return m.group(1)
+    return None
+
+
+def _extract_ivanti_version_from_pe(content: bytes) -> str | None:
+    """
+    Extract version from a PulseHostCheckerInstaller.exe PE binary.
+    Reads the VS_VERSION_INFO resource which contains FileVersion / ProductVersion.
+
+    Returns a version like '22.7.2.5' or None.
+    Reads up to ~512 KB so the caller should request bytes=0-524288 via Range.
+    """
+    if not content or len(content) < 100:
+        return None
+    # PE files start with MZ
+    if content[:2] != b"MZ":
+        return None
+    # Find the FileVersion / ProductVersion strings (UTF-16LE encoded)
+    text = content.decode("utf-16-le", errors="ignore")
+    for key in ("FileVersion", "ProductVersion", "PrivateBuild"):
+        m = re.search(
+            rf"{key}\W{{1,4}}(\d+[\.\,]\d+[\.\,]\d+(?:[\.\,]\d+)?)",
+            text,
+        )
+        if m:
+            return m.group(1).replace(",", ".")
+    return None
+
+
+def detect_ivanti_host(
+    base_url: str,
+    timeout: int = 8,
+    preloaded_html: str | None = None,
+    preloaded_headers: dict[str, str] | None = None,
+    preloaded_cookies: dict[str, str] | None = None,
+) -> dict[str, Any]:
+    """
+    Multi-signal Ivanti Connect Secure / Pulse Connect Secure detection.
+
+    Returns:
+        detected     bool
+        product      str | None   — "Ivanti Connect Secure" / "Pulse Connect Secure"
+        version      str | None   — e.g. "22.7R2.5" / "9.1.18.1"
+        confidence   str          — "confirmed" | "suspected" | "none"
+        methods      list[str]
+        evidence     list[str]
+        cves         list[dict]
+    """
+    result: dict[str, Any] = {
+        "detected":   False,
+        "product":    None,
+        "version":    None,
+        "confidence": "none",
+        "methods":    [],
+        "evidence":   [],
+        "cves":       [],
+    }
+    base = base_url.rstrip("/")
+
+    # ── M1: homepage HTML, cookies, headers ───────────────────────────────────
+    html = preloaded_html or ""
+    headers = {k.lower(): v for k, v in (preloaded_headers or {}).items()}
+    cookies = preloaded_cookies or {}
+    if preloaded_html is None:
+        try:
+            resp = requests.get(
+                base + "/", headers=HEADERS, timeout=timeout,
+                verify=False, allow_redirects=True,
+            )
+            html = resp.text or ""
+            headers = {k.lower(): v for k, v in resp.headers.items()}
+            cookies = resp.cookies.get_dict()
+        except requests.RequestException:
+            pass
+
+    # M1a: Cookie fingerprints (strongest signal — DSID / DSSIGNIN are unique)
+    for cookie_name in IVANTI_COOKIE_NAMES:
+        if cookie_name in cookies or any(
+            cookie_name in (v or "") for v in headers.values()
+        ) or re.search(
+            rf"\b{re.escape(cookie_name)}=",
+            headers.get("set-cookie", ""),
+            re.IGNORECASE,
+        ):
+            result["detected"] = True
+            result["confidence"] = "confirmed"
+            result["methods"].append(f"{cookie_name} cookie (Ivanti)")
+            result["evidence"].append(f"Set-Cookie: {cookie_name}=...")
+            break
+
+    # M1b: HTML body signatures
+    if html:
+        if re.search(r'<form\s+[^>]*name=["\']frmLogin["\']', html, re.I):
+            result["detected"] = True
+            result["confidence"] = "confirmed"
+            result["methods"].append('<form name="frmLogin"> (Ivanti login)')
+            result["evidence"].append('<form name="frmLogin"> in HTML')
+        if "welcome.cgi?p=logo" in html:
+            result["detected"] = True
+            result["confidence"] = "confirmed"
+            result["methods"].append("welcome.cgi?p=logo asset")
+            result["evidence"].append("welcome.cgi?p=logo referenced in HTML")
+        if "/dana-na/" in html:
+            result["detected"] = True
+            if result["confidence"] == "none":
+                result["confidence"] = "suspected"
+            result["methods"].append("/dana-na/ asset path in HTML")
+        if re.search(r'/dana-cached/', html, re.I):
+            result["detected"] = True
+            if result["confidence"] == "none":
+                result["confidence"] = "suspected"
+            result["methods"].append("/dana-cached/ asset path in HTML")
+        # Inline title or product strings
+        for product, label in [
+            ("Ivanti Connect Secure", "Ivanti Connect Secure"),
+            ("Pulse Connect Secure",  "Pulse Connect Secure"),
+            ("Pulse Secure, LLC",     "Pulse Secure, LLC"),
+        ]:
+            if product in html:
+                result["detected"] = True
+                result["confidence"] = "confirmed"
+                result["product"] = label
+                if f"product:{label}" not in result["methods"]:
+                    result["methods"].append(f"product string: {label}")
+                    result["evidence"].append(f'HTML contains "{product}"')
+                break
+
+        # Extract version from HTML (M2)
+        ver = _extract_ivanti_version_from_html(html)
+        if ver and not result["version"]:
+            result["version"] = ver
+            result["evidence"].append(f"Version from HTML: {ver}")
+            result["methods"].append("Version regex (HTML)")
+
+    # ── M2: probe welcome.cgi / login.cgi if not yet confirmed ────────────────
+    if not result["detected"] or not result["version"]:
+        for path, label in IVANTI_PRODUCT_PATTERNS:
+            try:
+                r = requests.get(
+                    base + path, headers=HEADERS, timeout=timeout,
+                    verify=False, allow_redirects=False,
+                )
+                # 200, 302, 401 are all positive indicators (the endpoint exists)
+                if r.status_code in (200, 302, 401) and (
+                    "frmLogin" in (r.text or "")
+                    or "Pulse" in (r.text or "")
+                    or "DSID" in r.headers.get("set-cookie", "")
+                ):
+                    result["detected"] = True
+                    result["confidence"] = "confirmed"
+                    result["methods"].append(f"endpoint: {label}")
+                    result["evidence"].append(f"{path} -> HTTP {r.status_code}")
+                    if not result["version"]:
+                        ver = _extract_ivanti_version_from_html(r.text or "")
+                        if ver:
+                            result["version"] = ver
+                            result["evidence"].append(f"Version from {label}: {ver}")
+                    break
+            except requests.RequestException:
+                pass
+
+    # ── M3: Host Checker installer probes (PE binary version parse) ───────────
+    if result["detected"] and not result["version"]:
+        for path in IVANTI_INSTALLER_PATHS:
+            try:
+                # HEAD first to check existence (saves bandwidth)
+                h = requests.head(
+                    base + path, headers=HEADERS, timeout=timeout,
+                    verify=False, allow_redirects=False,
+                )
+                if h.status_code not in (200, 206):
+                    continue
+                result["evidence"].append(f"Installer exists: {path}")
+                result["methods"].append(f"Host Checker: {path.rsplit('/',1)[-1]}")
+                # Last-Modified is a weak version proxy but worth recording
+                if h.headers.get("Last-Modified"):
+                    result["evidence"].append(
+                        f"Last-Modified: {h.headers['Last-Modified']}"
+                    )
+
+                # Only .exe is parseable — fetch first 512 KB and parse PE
+                if path.endswith(".exe"):
+                    range_get = requests.get(
+                        base + path, headers={**HEADERS, "Range": "bytes=0-524287"},
+                        timeout=timeout, verify=False, allow_redirects=False, stream=False,
+                    )
+                    if range_get.status_code in (200, 206):
+                        ver = _extract_ivanti_version_from_pe(range_get.content)
+                        if ver:
+                            result["version"] = ver
+                            result["evidence"].append(
+                                f"Version from {path.rsplit('/',1)[-1]} PE: {ver}"
+                            )
+                            result["methods"].append("PE binary version (Host Checker)")
+                            break
+            except requests.RequestException:
+                pass
+
+    # ── M4: dana-cached version-numbered subdirs ──────────────────────────────
+    if result["detected"] and not result["version"]:
+        # Look for directories like /dana-cached/sc/sc/22.7R2.5/setup.exe in HTML
+        m = re.search(r'/dana-cached/sc/sc/(\d+\.\d+R\d+(?:\.\d+)?)', html or "")
+        if m:
+            result["version"] = m.group(1)
+            result["evidence"].append(f"Version from dana-cached subdir: {m.group(1)}")
+            result["methods"].append("dana-cached versioned subdir")
+
+    # ── Set product if we have detection but no specific product ──────────────
+    if result["detected"] and not result["product"]:
+        result["product"] = "Ivanti Connect Secure"   # default name
+
+    # ── CVE check ─────────────────────────────────────────────────────────────
+    if result["detected"]:
+        result["cves"] = check_ivanti_vulns(result["version"])
+
+    return result
+
+
+# ============================================================================
+# IVANTI CVE VULNERABILITY DATABASE
+# ============================================================================
+# Each entry uses the same shape as NEXTJS_VULN_DB. Version format here is
+# Ivanti-native (e.g. "22.7R2.5", "9.1R18.4") so the matcher parses
+# "<major>.<minor>R<release>" tuples.
+
+IVANTI_VULN_DB: list[dict[str, Any]] = [
+    {
+        "cve":         "CVE-2024-21887",
+        "severity":    "CRITICAL",
+        "cvss":        9.1,
+        "title":       "Command Injection in web components",
+        "description": (
+            "An authenticated administrator can craft requests to execute "
+            "arbitrary commands. Combined with CVE-2023-46805 it is a pre-auth RCE."
+        ),
+        "affected": [
+            {"product": "ICS", "lt": "9.1R18.3"},
+            {"product": "ICS", "gte": "22.0R1", "lt": "22.5R2.2"},
+        ],
+        "fixed_in":        ["9.1R18.3", "22.5R2.2"],
+        "nuclei_template": "http/cves/2024/CVE-2024-21887.yaml",
+        "nuclei_repo":     "https://github.com/projectdiscovery/nuclei-templates",
+        "references": [
+            "https://nvd.nist.gov/vuln/detail/CVE-2024-21887",
+            "https://forums.ivanti.com/s/article/CVE-2023-46805-Authentication-Bypass-CVE-2024-21887-Command-Injection-for-Ivanti-Connect-Secure-and-Ivanti-Policy-Secure-Gateways",
+        ],
+    },
+    {
+        "cve":         "CVE-2023-46805",
+        "severity":    "HIGH",
+        "cvss":        8.2,
+        "title":       "Authentication bypass in web component",
+        "description": (
+            "An attacker can bypass authentication on the web component of "
+            "ICS / IPS and access restricted resources without credentials."
+        ),
+        "affected": [
+            {"product": "ICS", "lt": "9.1R18.3"},
+            {"product": "ICS", "gte": "22.0R1", "lt": "22.5R2.2"},
+        ],
+        "fixed_in":        ["9.1R18.3", "22.5R2.2"],
+        "nuclei_template": "http/cves/2024/CVE-2023-46805.yaml",
+        "nuclei_repo":     "https://github.com/projectdiscovery/nuclei-templates",
+        "references": [
+            "https://nvd.nist.gov/vuln/detail/CVE-2023-46805",
+        ],
+    },
+    {
+        "cve":         "CVE-2024-21893",
+        "severity":    "HIGH",
+        "cvss":        8.2,
+        "title":       "SSRF in SAML component",
+        "description": (
+            "A Server-Side Request Forgery vulnerability in the SAML component "
+            "allows attackers to access restricted internal resources without authentication."
+        ),
+        "affected": [
+            {"product": "ICS", "lt": "9.1R18.3"},
+            {"product": "ICS", "gte": "22.0R1", "lt": "22.5R2.2"},
+        ],
+        "fixed_in":        ["9.1R18.3", "22.5R2.2"],
+        "nuclei_template": "http/cves/2024/CVE-2024-21893.yaml",
+        "nuclei_repo":     "https://github.com/projectdiscovery/nuclei-templates",
+        "references": [
+            "https://nvd.nist.gov/vuln/detail/CVE-2024-21893",
+        ],
+    },
+    {
+        "cve":         "CVE-2024-22024",
+        "severity":    "HIGH",
+        "cvss":        8.3,
+        "title":       "XXE in SAML component",
+        "description": (
+            "An XML External Entity (XXE) vulnerability in the SAML component allows "
+            "an attacker to access restricted resources without authentication."
+        ),
+        "affected": [
+            {"product": "ICS", "lt": "9.1R18.4"},
+            {"product": "ICS", "gte": "22.0R1", "lt": "22.5R2.3"},
+        ],
+        "fixed_in":        ["9.1R18.4", "22.5R2.3"],
+        "nuclei_template": "http/cves/2024/CVE-2024-22024.yaml",
+        "nuclei_repo":     "https://github.com/projectdiscovery/nuclei-templates",
+        "references": [
+            "https://nvd.nist.gov/vuln/detail/CVE-2024-22024",
+        ],
+    },
+    {
+        "cve":         "CVE-2025-22457",
+        "severity":    "CRITICAL",
+        "cvss":        9.0,
+        "title":       "Stack-based buffer overflow → unauthenticated RCE",
+        "description": (
+            "A stack-based buffer overflow in the web component permits an "
+            "unauthenticated attacker to execute arbitrary code as root. "
+            "Actively exploited in the wild."
+        ),
+        "affected": [
+            {"product": "ICS", "lt": "22.7R2.6"},
+            {"product": "PCS", "lt": "9.1R18.9"},
+        ],
+        "fixed_in":        ["22.7R2.6", "9.1R18.9"],
+        "nuclei_template": "http/cves/2025/CVE-2025-22457.yaml",
+        "nuclei_repo":     "https://github.com/projectdiscovery/nuclei-templates",
+        "references": [
+            "https://nvd.nist.gov/vuln/detail/CVE-2025-22457",
+            "https://forums.ivanti.com/s/article/Security-Advisory-Ivanti-Connect-Secure-Policy-Secure-ZTA-Gateways-CVE-2025-22457",
+        ],
+    },
+]
+
+
+def _parse_ivanti_version(version: str) -> tuple[int, int, int, int] | None:
+    """
+    Parse '22.7R2.5' -> (22, 7, 2, 5) or '9.1R18' -> (9, 1, 18, 0).
+    Returns None if unparseable.
+    """
+    if not version:
+        return None
+    m = re.match(r"^(\d+)\.(\d+)R(\d+)(?:\.(\d+))?", version)
+    if not m:
+        # Try PE-style "22.7.2.5"
+        m = re.match(r"^(\d+)\.(\d+)\.(\d+)(?:\.(\d+))?", version)
+        if not m:
+            return None
+    return (
+        int(m.group(1)),
+        int(m.group(2)),
+        int(m.group(3)),
+        int(m.group(4) or 0),
+    )
+
+
+def check_ivanti_vulns(version: str | None) -> list[dict[str, Any]]:
+    """Match a detected Ivanti version against the CVE database."""
+    if not version:
+        # When version unknown, return all CVEs as 'possibly_affected'
+        return [{**v, "possibly_affected": True} for v in IVANTI_VULN_DB]
+
+    parsed = _parse_ivanti_version(version)
+    if not parsed:
+        return [{**v, "possibly_affected": True} for v in IVANTI_VULN_DB]
+
+    results: list[dict[str, Any]] = []
+    for vuln in IVANTI_VULN_DB:
+        for rng in vuln.get("affected", []):
+            lt_str = rng.get("lt")
+            gte_str = rng.get("gte")
+            lt_parsed = _parse_ivanti_version(lt_str) if lt_str else None
+            gte_parsed = _parse_ivanti_version(gte_str) if gte_str else None
+            in_range = True
+            if lt_parsed and parsed >= lt_parsed:
+                in_range = False
+            if gte_parsed and parsed < gte_parsed:
+                in_range = False
+            if in_range:
+                results.append({**vuln, "possibly_affected": False})
+                break
+    return results
+
+
 def phase3_aem_detect(scan: ScanState) -> None:
     """Parallel AEM fingerprinting across all alive hosts."""
     hosts = scan.alive_hosts
@@ -3315,28 +3762,51 @@ def phase3_aem_detect(scan: ScanState) -> None:
             return
         base = base.rstrip("/")
 
+        enabled = set(scan.enabled_techs or ["aem", "nextjs", "ivanti"])
+
         # ── AEM fingerprinting ────────────────────────────────────────────
-        confidence, score, reasons = detect_aem_host(base, scan, scan.timeout)
+        if "aem" in enabled:
+            confidence, score, reasons = detect_aem_host(base, scan, scan.timeout)
+        else:
+            confidence, score, reasons = "not_aem", 0, []
 
         # ── Next.js fingerprinting (reuse homepage HTML from AEM probe) ───
+        nextjs = None
+        if "nextjs" in enabled:
+            cache = getattr(scan, "_homepage_cache", {}) or {}
+            cached = cache.get(base)
+            if cached:
+                pre_html, pre_headers = cached
+                nextjs = detect_nextjs_host(
+                    base, scan.timeout,
+                    preloaded_html=pre_html, preloaded_headers=pre_headers,
+                )
+            else:
+                nextjs = detect_nextjs_host(base, scan.timeout)
+
+        # ── Ivanti fingerprinting (reuse homepage HTML too) ────────────────
+        ivanti = None
+        if "ivanti" in enabled:
+            cache = getattr(scan, "_homepage_cache", {}) or {}
+            cached = cache.get(base)
+            if cached:
+                pre_html, pre_headers = cached
+                ivanti = detect_ivanti_host(
+                    base, scan.timeout,
+                    preloaded_html=pre_html, preloaded_headers=pre_headers,
+                )
+            else:
+                ivanti = detect_ivanti_host(base, scan.timeout)
+
+        # Free the cached homepage now that all enabled detectors used it
         cache = getattr(scan, "_homepage_cache", {}) or {}
-        cached = cache.get(base)
-        if cached:
-            pre_html, pre_headers = cached
-            nextjs = detect_nextjs_host(
-                base, scan.timeout,
-                preloaded_html=pre_html, preloaded_headers=pre_headers,
-            )
-            # Free memory: drop cache entry now that nextjs detection used it
-            try: del cache[base]
-            except KeyError: pass
-        else:
-            nextjs = detect_nextjs_host(base, scan.timeout)
+        try: del cache[base]
+        except (KeyError, AttributeError): pass
 
         # ── Auto Deep Check (browser) for Next.js when regex didn't get
         # an exact version. Bounded by browser pool semaphore (8 concurrent
         # pages) so it doesn't blow up the scan.
-        if nextjs.get("detected") and (
+        if nextjs and nextjs.get("detected") and (
             not nextjs.get("version")
             or nextjs.get("version_inferred")
             or nextjs.get("version") == "vercel-locked"
@@ -3377,8 +3847,10 @@ def phase3_aem_detect(scan: ScanState) -> None:
                     "reasons": reasons,
                 }
             scan.phase3_cursor = len(already_probed) + done[0]
-            if nextjs["detected"]:
+            if nextjs and nextjs.get("detected"):
                 scan.nextjs_hosts[base] = nextjs
+            if ivanti and ivanti.get("detected"):
+                scan.ivanti_hosts[base] = ivanti
 
         if confidence in ("confirmed", "suspected"):
             _send_ws(scan, {
@@ -3390,7 +3862,7 @@ def phase3_aem_detect(scan: ScanState) -> None:
                 "reasons": reasons,
             })
 
-        if nextjs["detected"]:
+        if nextjs and nextjs.get("detected"):
             _send_ws(scan, {
                 "type":             "nextjs_detected",
                 "phase":            3,
@@ -3404,6 +3876,19 @@ def phase3_aem_detect(scan: ScanState) -> None:
                 "methods":          nextjs["methods"],
                 "evidence":         nextjs["evidence"],
                 "cves":             nextjs.get("cves", []),
+            })
+
+        if ivanti and ivanti.get("detected"):
+            _send_ws(scan, {
+                "type":       "ivanti_detected",
+                "phase":      3,
+                "host":       base,
+                "product":    ivanti.get("product"),
+                "version":    ivanti.get("version"),
+                "confidence": ivanti.get("confidence"),
+                "methods":    ivanti.get("methods"),
+                "evidence":   ivanti.get("evidence"),
+                "cves":       ivanti.get("cves", []),
             })
 
         _send_ws(scan, {
@@ -4045,6 +4530,8 @@ class ScanRequest(BaseModel):
     start_phase: int = 1          # 1=subdomains, 2=alive, 3=aem, 4=bypass
     uploaded_hosts: list[str] | None = None       # small inline host list
     uploaded_hosts_id: str | None = None          # server-side upload ID (for large files)
+    # Which tech detectors to run in Phase 3 (default all)
+    enabled_techs: list[str] | None = None        # subset of {"aem", "nextjs", "ivanti"}
 
 
 @app.post("/api/scan")
@@ -4068,12 +4555,19 @@ async def start_scan(req: ScanRequest) -> JSONResponse:
         )
 
     scan_id = uuid.uuid4().hex[:12]
+    # Sanitise enabled_techs: only accept known tech names
+    _allowed_techs = {"aem", "nextjs", "ivanti"}
+    _enabled = [t for t in (req.enabled_techs or []) if t in _allowed_techs]
+    if not _enabled:
+        _enabled = list(_allowed_techs)
+
     scan = ScanState(
         scan_id=scan_id,
         threads=max(1, min(req.threads, 500)),
         per_host=max(1, min(req.per_host_concurrency, 50)),
         timeout=max(3, min(req.timeout, 30)),
         bypass_mode=req.bypass_mode,
+        enabled_techs=_enabled,
     )
 
     if req.domain:
@@ -4221,9 +4715,11 @@ async def scan_results(scan_id: str) -> JSONResponse:
         # inline only when small — prevents 800MB responses
         "subdomains":       scan.subdomains  if sub_count  <= INLINE_LIMIT else [],
         "alive_hosts":      scan.alive_hosts if alive_count <= INLINE_LIMIT else [],
-        # AEM hosts + Next.js hosts + vulns — always small, always inline
+        # AEM hosts + Next.js hosts + Ivanti hosts + vulns — always small, always inline
         "aem_hosts":        scan.aem_hosts,
         "nextjs_hosts":     scan.nextjs_hosts,
+        "ivanti_hosts":     scan.ivanti_hosts,
+        "enabled_techs":    scan.enabled_techs,
         "vulnerabilities":  scan.vulnerabilities,
         "summary":          scan.vulnerability_summary,
     })

@@ -1108,6 +1108,14 @@ html, body {
     border-color: rgba(0,229,255,0.45);
     background: rgba(0,229,255,0.06);
 }
+.tech-subtab#techSubIvanti.active {
+    border-color: rgba(244,143,177,0.45);
+    background: rgba(244,143,177,0.06);
+}
+.tech-subtab#techSubIvanti.active .tech-subtab-count {
+    background: rgba(244,143,177,0.18);
+    color: #f48fb1;
+}
 .tech-subtab-icon {
     font-size: 16px;
     opacity: 0.85;
@@ -1689,6 +1697,54 @@ html, body {
     backdrop-filter: blur(4px);
 }
 .modal-overlay.open { display: flex; }
+
+/* Tech-picker modal */
+.tech-picker-list {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+.tech-picker-option {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    padding: 12px 14px;
+    background: rgba(255,255,255,0.025);
+    border: 1px solid rgba(255,255,255,0.08);
+    border-radius: 8px;
+    cursor: pointer;
+    transition: all 0.15s ease;
+}
+.tech-picker-option:hover {
+    background: rgba(255,255,255,0.05);
+    border-color: rgba(255,255,255,0.2);
+}
+.tech-picker-option input[type="checkbox"] {
+    width: 18px; height: 18px;
+    accent-color: var(--critical);
+    cursor: pointer;
+}
+.tech-picker-option[data-tech="aem"]   .tech-picker-icon { color: #69f0ae; }
+.tech-picker-option[data-tech="nextjs"] .tech-picker-icon { color: #00e5ff; }
+.tech-picker-option[data-tech="ivanti"] .tech-picker-icon { color: #f48fb1; }
+.tech-picker-icon {
+    font-size: 22px;
+}
+.tech-picker-body {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+}
+.tech-picker-name {
+    font-weight: 700;
+    font-size: 13px;
+    color: var(--text);
+}
+.tech-picker-desc {
+    font-size: 11px;
+    color: var(--text-muted);
+    font-family: var(--mono);
+}
 .modal {
     background: var(--bg-card);
     border: 1px solid var(--border);
@@ -2260,6 +2316,11 @@ html, body {
                             <span class="tech-subtab-name">Next.js</span>
                             <span class="tech-subtab-count" id="techNextjsCount">0</span>
                         </button>
+                        <button class="tech-subtab" data-subtab="ivanti" id="techSubIvanti">
+                            <span class="tech-subtab-icon">&#9670;</span>
+                            <span class="tech-subtab-name">Ivanti</span>
+                            <span class="tech-subtab-count" id="techIvantiCount">0</span>
+                        </button>
                     </div>
                     <div class="tech-content active" id="techPanelAem">
                         <div class="empty-state" id="aemEmpty">
@@ -2289,6 +2350,18 @@ html, body {
                                 <div>No Next.js sites detected yet</div>
                                 <div style="margin-top:10px;font-size:12px;color:var(--text-muted)">
                                     Detected automatically during Phase 3 — or use the checker above
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="tech-content" id="techPanelIvanti">
+                        <div class="nextjs-version-groups" id="ivantiVersionGroups"></div>
+                        <div id="ivantiResultsList">
+                            <div class="empty-state" id="ivantiEmpty">
+                                <div class="empty-state-icon">&#9670;</div>
+                                <div>No Ivanti / Pulse Secure appliances detected yet</div>
+                                <div style="margin-top:10px;font-size:12px;color:var(--text-muted)">
+                                    Detected automatically during Phase 3 (cookies, /dana-cached/, Host Checker binaries)
                                 </div>
                             </div>
                         </div>
@@ -2339,6 +2412,46 @@ html, body {
         <h2 id="modalTitle">SCAN COMPLETE</h2>
         <div class="modal-stats" id="modalStats"></div>
         <button class="btn-close-modal" id="modalClose">CLOSE</button>
+    </div>
+</div>
+
+<!-- TECH PICKER MODAL (shown before LAUNCH SCAN) -->
+<div class="modal-overlay" id="techPickerOverlay">
+    <div class="modal" style="max-width:520px">
+        <h2 style="margin-bottom:8px">SELECT TECH TO SCAN</h2>
+        <div style="font-size:12px;color:var(--text-muted);margin-bottom:18px">
+            Choose which technologies to fingerprint in Phase 3. Disabling a detector skips its probes — speeds up the scan when you know what you're hunting.
+        </div>
+        <div class="tech-picker-list" id="techPickerList">
+            <label class="tech-picker-option" data-tech="aem">
+                <input type="checkbox" checked data-tech="aem">
+                <span class="tech-picker-icon">&loz;</span>
+                <span class="tech-picker-body">
+                    <span class="tech-picker-name">Adobe Experience Manager</span>
+                    <span class="tech-picker-desc">QueryBuilder, CRX, OSGi, DAM probes + dispatcher bypass</span>
+                </span>
+            </label>
+            <label class="tech-picker-option" data-tech="nextjs">
+                <input type="checkbox" checked data-tech="nextjs">
+                <span class="tech-picker-icon">&#9830;</span>
+                <span class="tech-picker-body">
+                    <span class="tech-picker-name">Next.js</span>
+                    <span class="tech-picker-desc">__NEXT_DATA__, /_next/static/, window.next.version (browser eval)</span>
+                </span>
+            </label>
+            <label class="tech-picker-option" data-tech="ivanti">
+                <input type="checkbox" checked data-tech="ivanti">
+                <span class="tech-picker-icon">&#9670;</span>
+                <span class="tech-picker-body">
+                    <span class="tech-picker-name">Ivanti / Pulse Secure</span>
+                    <span class="tech-picker-desc">DSID cookies, /dana-cached/, PE binary version + 5 CVEs</span>
+                </span>
+            </label>
+        </div>
+        <div style="display:flex;gap:10px;justify-content:flex-end;margin-top:16px">
+            <button class="btn-close-modal" id="techPickerCancel" style="background:transparent;color:var(--text-dim)">CANCEL</button>
+            <button class="btn-close-modal" id="techPickerStart">START SCAN &#9654;</button>
+        </div>
     </div>
 </div>
 
@@ -2420,9 +2533,11 @@ html, body {
 
         const aemCount = state.counts.aem || 0;
         const nextCount = state.counts.nextjs || 0;
+        const ivantiCount = state.counts.ivanti || 0;
         $('#techAemCount').textContent = aemCount;
         $('#techNextjsCount').textContent = nextCount;
-        $('#tabTechCount').textContent = aemCount + nextCount;
+        const ivBadge = $('#techIvantiCount'); if (ivBadge) ivBadge.textContent = ivantiCount;
+        $('#tabTechCount').textContent = aemCount + nextCount + ivantiCount;
         $('#tabVulnsCount').textContent = state.counts.vulns;
     }
 
@@ -2656,6 +2771,116 @@ html, body {
                     evidence.map(e => '<span>' + escapeHtml(e) + '</span>').join('') +
                   '</div>'
                 : '');
+        return card;
+    }
+
+    // ── Ivanti host card ──
+    state.ivantiByVersion = state.ivantiByVersion || {};
+    state.ivantiFilter = null;
+
+    function addIvantiHost(data) {
+        const empty = $('#ivantiEmpty');
+        if (empty) empty.remove();
+
+        state.counts.ivanti = (state.counts.ivanti || 0) + 1;
+        const ivBadge = $('#techIvantiCount'); if (ivBadge) ivBadge.textContent = state.counts.ivanti;
+        const aemCount = state.counts.aem || 0;
+        const nextCount = state.counts.nextjs || 0;
+        $('#tabTechCount').textContent = aemCount + nextCount + state.counts.ivanti;
+
+        const ver = data.version || null;
+        const key = ver || '__unknown__';
+        const label = ver ? 'v' + ver : 'version unknown';
+        const cls = ver ? 'exact' : 'unknown';
+        if (!state.ivantiByVersion[key]) {
+            state.ivantiByVersion[key] = { label, cls, hosts: [] };
+        }
+        state.ivantiByVersion[key].hosts.push(data);
+        renderIvantiGroups();
+    }
+
+    function renderIvantiGroups() {
+        const pillsEl = $('#ivantiVersionGroups');
+        const listEl = $('#ivantiResultsList');
+        if (!pillsEl || !listEl) return;
+        const keys = Object.keys(state.ivantiByVersion).sort();
+
+        pillsEl.innerHTML = '';
+        const allPill = document.createElement('span');
+        allPill.className = 'nextjs-version-pill' + (state.ivantiFilter === null ? ' active' : '');
+        allPill.innerHTML = 'ALL <span class="pill-count">' + (state.counts.ivanti || 0) + '</span>';
+        allPill.onclick = () => { state.ivantiFilter = null; renderIvantiGroups(); };
+        pillsEl.appendChild(allPill);
+
+        keys.forEach(k => {
+            const group = state.ivantiByVersion[k];
+            const totalCves = group.hosts.reduce((s, h) => s + ((h.cves || []).length), 0);
+            const pill = document.createElement('span');
+            pill.className = 'nextjs-version-pill ' + group.cls + (state.ivantiFilter === k ? ' active' : '');
+            pill.innerHTML = escapeHtml(group.label) +
+                ' <span class="pill-count">' + group.hosts.length + '</span>' +
+                (totalCves > 0 ? ' <span class="pill-cve">' + totalCves + ' CVE</span>' : '');
+            pill.onclick = () => {
+                state.ivantiFilter = (state.ivantiFilter === k) ? null : k;
+                renderIvantiGroups();
+            };
+            pillsEl.appendChild(pill);
+        });
+
+        listEl.innerHTML = '';
+        keys.forEach(k => {
+            if (state.ivantiFilter !== null && state.ivantiFilter !== k) return;
+            const group = state.ivantiByVersion[k];
+            const groupDiv = document.createElement('div');
+            groupDiv.className = 'nextjs-version-group';
+            const header = document.createElement('div');
+            header.className = 'nextjs-version-group-header ' + group.cls;
+            header.innerHTML = escapeHtml(group.label) +
+                '<span class="nextjs-version-group-count">' + group.hosts.length + ' host' + (group.hosts.length === 1 ? '' : 's') + '</span>';
+            groupDiv.appendChild(header);
+            group.hosts.forEach(d => groupDiv.appendChild(_buildIvantiCard(d)));
+            listEl.appendChild(groupDiv);
+        });
+    }
+
+    function _buildIvantiCard(data) {
+        const card = document.createElement('div');
+        card.className = 'nextjs-card';
+        const ver = data.version
+            ? '<span class="nextjs-version-badge" style="background:rgba(244,143,177,0.15);border-color:rgba(244,143,177,0.4);color:#f48fb1">v' + escapeHtml(data.version) + '</span>'
+            : '<span class="nextjs-version-badge unknown">version unknown</span>';
+        const product = data.product
+            ? '<span class="nextjs-router-badge" style="background:rgba(244,143,177,0.1);color:#f48fb1">' + escapeHtml(data.product) + '</span>'
+            : '';
+        const cves = data.cves || [];
+        const cveBadges = cves.length > 0
+            ? '<div class="nextjs-cve-list">' +
+                cves.map(c => {
+                    const possibleCls = c.possibly_affected ? ' possible' : '';
+                    const nucleiBtn = c.nuclei_template
+                        ? ' <a class="nextjs-nuclei-link" href="' + escapeHtml((c.nuclei_repo || '') + '/blob/main/' + c.nuclei_template) + '" target="_blank" rel="noopener">nuclei ↗</a>'
+                        : '';
+                    const refUrl = (c.references && c.references[0]) || '#';
+                    return '<a class="nextjs-cve-badge ' + c.severity + possibleCls + '" href="' + escapeHtml(refUrl) + '" target="_blank" rel="noopener" title="' + escapeHtml(c.title || c.cve) + '">' +
+                        escapeHtml(c.cve) + ' ' + c.severity + ' ' + (c.cvss || '') +
+                    '</a>' + nucleiBtn;
+                }).join(' ') +
+              '</div>'
+            : '';
+        const methods = (data.methods || []).slice(0, 4).map(m =>
+            '<span>' + escapeHtml(m) + '</span>'
+        ).join('');
+        const evidence = (data.evidence || []).slice(0, 5).map(e =>
+            '<span>' + escapeHtml(e) + '</span>'
+        ).join('');
+        card.innerHTML =
+            '<div class="nextjs-card-header">' +
+                '<span class="nextjs-card-host">' + escapeHtml(data.host || '') + '</span>' +
+                ver + product +
+            '</div>' +
+            cveBadges +
+            '<div class="nextjs-card-evidence">' + methods + '</div>' +
+            (evidence ? '<div class="nextjs-card-evidence" style="margin-top:3px">' + evidence + '</div>' : '');
         return card;
     }
 
@@ -2960,6 +3185,16 @@ html, body {
                     (data.version ? ' v' + data.version : '') +
                     ' detected: ' + (data.host || '') +
                     (data.router ? ' [' + data.router + ' router]' : '')
+                );
+                break;
+
+            case 'ivanti_detected':
+                addIvantiHost(data);
+                addFeedEntry('warn',
+                    '&#9670; Ivanti' +
+                    (data.version ? ' v' + data.version : '') +
+                    ' detected: ' + (data.host || '') +
+                    ((data.cves || []).length ? ' (' + data.cves.length + ' CVE)' : '')
                 );
                 break;
 
@@ -3463,7 +3698,7 @@ html, body {
         state.counts = { subdomains: 0, alive: 0, aem: 0, vulns: 0, nextjs: 0 };
         state.aemHosts = [];
         state.vulnerabilities = [];
-        state.allHosts = []; state.nextjsByVersion = {}; state.nextjsFilter = null;
+        state.allHosts = []; state.nextjsByVersion = {}; state.nextjsFilter = null; state.ivantiByVersion = {}; state.ivantiFilter = null;
         state.feedEntries = 0;
         feedContent.innerHTML = '';
         $('#techPanelAem').innerHTML = '<div class="empty-state" id="aemEmpty"><div class="empty-state-icon">&loz;</div><div>No AEM hosts detected yet</div></div>';
@@ -3534,16 +3769,17 @@ html, body {
     });
 
     // ── Start Scan ──
-    async function startScan() {
+    async function startScan(enabledTechs) {
         const domain = domainInput.value.trim();
         if (!domain || state.scanning) return;
         state.domain = domain;
+        state.enabledTechs = enabledTechs || ['aem', 'nextjs', 'ivanti'];
 
         // Reset state
         state.counts = { subdomains: 0, alive: 0, aem: 0, vulns: 0, nextjs: 0 };
         state.aemHosts = [];
         state.vulnerabilities = [];
-        state.allHosts = []; state.nextjsByVersion = {}; state.nextjsFilter = null;
+        state.allHosts = []; state.nextjsByVersion = {}; state.nextjsFilter = null; state.ivantiByVersion = {}; state.ivantiFilter = null;
         state.subdomainsList = [];
         state.aliveList = [];
         state._largeSubdomains = false;
@@ -3566,14 +3802,14 @@ html, body {
         addFeedEntry('info', 'Starting scan for: ' + domain);
 
         try {
+            const body = (domain.startsWith('http://') || domain.startsWith('https://'))
+                ? (domain.includes('\n') ? { urls: domain.split('\n').map(u => u.trim()).filter(Boolean) } : { url: domain })
+                : { domain: domain };
+            body.enabled_techs = state.enabledTechs;
             const resp = await fetch('/api/scan', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(
-                    domain.startsWith('http://') || domain.startsWith('https://')
-                        ? (domain.includes('\n') ? { urls: domain.split('\n').map(u => u.trim()).filter(Boolean) } : { url: domain })
-                        : { domain: domain }
-                )
+                body: JSON.stringify(body)
             });
             if (!resp.ok) {
                 const err = await resp.text();
@@ -3695,10 +3931,40 @@ html, body {
 
     // ── Event Listeners ──
 
-    scanBtn.addEventListener('click', startScan);
+    // Tech-picker modal: opens before scan starts
+    const techPickerOverlay = document.getElementById('techPickerOverlay');
+    function openTechPicker() {
+        const domain = domainInput.value.trim();
+        if (!domain || state.scanning) return;
+        if (techPickerOverlay) techPickerOverlay.classList.add('open');
+    }
+    function getSelectedTechs() {
+        const boxes = document.querySelectorAll('#techPickerList input[type=checkbox]');
+        return Array.from(boxes).filter(b => b.checked).map(b => b.dataset.tech);
+    }
+    if (techPickerOverlay) {
+        document.getElementById('techPickerCancel').addEventListener('click', () => {
+            techPickerOverlay.classList.remove('open');
+        });
+        document.getElementById('techPickerStart').addEventListener('click', () => {
+            const techs = getSelectedTechs();
+            if (techs.length === 0) {
+                alert('Select at least one tech to scan');
+                return;
+            }
+            techPickerOverlay.classList.remove('open');
+            startScan(techs);
+        });
+        // Click outside modal to dismiss
+        techPickerOverlay.addEventListener('click', (e) => {
+            if (e.target === techPickerOverlay) techPickerOverlay.classList.remove('open');
+        });
+    }
+
+    scanBtn.addEventListener('click', openTechPicker);
 
     domainInput.addEventListener('keydown', function (e) {
-        if (e.key === 'Enter') startScan();
+        if (e.key === 'Enter') openTechPicker();
     });
 
     pauseBtn.addEventListener('click', function () {
@@ -3756,7 +4022,7 @@ html, body {
             document.querySelectorAll('.tech-content').forEach(p => p.classList.remove('active'));
             btn.classList.add('active');
             const sub = btn.dataset.subtab;
-            const subMap = { aem: 'techPanelAem', nextjs: 'techPanelNextjs' };
+            const subMap = { aem: 'techPanelAem', nextjs: 'techPanelNextjs', ivanti: 'techPanelIvanti' };
             const panel = $('#' + subMap[sub]);
             if (panel) panel.classList.add('active');
         });
@@ -3877,7 +4143,7 @@ html, body {
         state.counts = { subdomains: 0, alive: 0, aem: 0, vulns: 0, nextjs: 0 };
         state.aemHosts = [];
         state.vulnerabilities = [];
-        state.allHosts = []; state.nextjsByVersion = {}; state.nextjsFilter = null;
+        state.allHosts = []; state.nextjsByVersion = {}; state.nextjsFilter = null; state.ivantiByVersion = {}; state.ivantiFilter = null;
         state.subdomainsList = [];
         state.aliveList = [];
         state.feedEntries = 0;
@@ -4058,7 +4324,7 @@ html, body {
         state.counts = { subdomains: 0, alive: 0, aem: 0, vulns: 0, nextjs: 0 };
         state.aemHosts = [];
         state.vulnerabilities = [];
-        state.allHosts = []; state.nextjsByVersion = {}; state.nextjsFilter = null;
+        state.allHosts = []; state.nextjsByVersion = {}; state.nextjsFilter = null; state.ivantiByVersion = {}; state.ivantiFilter = null;
         state.subdomainsList = [];
         state.aliveList = [];
         state._largeSubdomains = false;
@@ -4133,6 +4399,14 @@ html, body {
                     addNextjsHost({ host, ...info });
                 }
                 addFeedEntry('info', 'Next.js: ' + Object.keys(data.nextjs_hosts).length + ' site(s) detected');
+            }
+
+            // Populate Ivanti hosts
+            if (data.ivanti_hosts && Object.keys(data.ivanti_hosts).length > 0) {
+                for (const [host, info] of Object.entries(data.ivanti_hosts)) {
+                    addIvantiHost({ host, ...info });
+                }
+                addFeedEntry('warn', 'Ivanti: ' + Object.keys(data.ivanti_hosts).length + ' appliance(s) detected');
             }
 
             // Populate AEM hosts
